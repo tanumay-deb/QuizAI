@@ -3,11 +3,11 @@
 > Desktop AI study assistant. Capture a quiz or exam question on your screen, get a clear answer and explanation in seconds.
 
 <p align="center">
-  <a href="https://github.com/YOUR_USERNAME/quizai-assistant/actions/workflows/ci.yml">
-    <img src="https://github.com/YOUR_USERNAME/quizai-assistant/actions/workflows/ci.yml/badge.svg" alt="CI status">
+  <a href="https://github.com/tanumay-deb/quizai-assistant/actions/workflows/ci.yml">
+    <img src="https://github.com/tanumay-deb/quizai-assistant/actions/workflows/ci.yml/badge.svg" alt="CI status">
   </a>
-  <a href="https://github.com/YOUR_USERNAME/quizai-assistant/releases">
-    <img src="https://img.shields.io/github/v/release/YOUR_USERNAME/quizai-assistant" alt="Latest release">
+  <a href="https://github.com/tanumay-deb/quizai-assistant/releases">
+    <img src="https://img.shields.io/github/v/release/tanumay-deb/quizai-assistant" alt="Latest release">
   </a>
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
@@ -59,7 +59,7 @@ Built for **personal study**. Not for use during proctored exams, certifications
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/quizai-assistant
+git clone https://github.com/tanumay-deb/quizai-assistant
 cd quizai-assistant
 
 python -m venv venv

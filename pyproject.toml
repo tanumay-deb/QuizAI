@@ -9,7 +9,7 @@ description = "Desktop AI study assistant: screen-capture quiz/exam questions, g
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-authors = [{ name = "Tanumay" }]
+authors = [{ name = "Tanumay Goswami" }]
 keywords = ["ai", "study", "quiz", "vision", "claude", "gemini", "tutor", "desktop"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,10 +49,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/quizai-assistant"
-Repository = "https://github.com/YOUR_USERNAME/quizai-assistant"
-Issues = "https://github.com/YOUR_USERNAME/quizai-assistant/issues"
-Changelog = "https://github.com/YOUR_USERNAME/quizai-assistant/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/tanumay-deb/quizai-assistant"
+Repository = "https://github.com/tanumay-deb/quizai-assistant"
+Issues = "https://github.com/tanumay-deb/quizai-assistant/issues"
+Changelog = "https://github.com/tanumay-deb/quizai-assistant/blob/main/CHANGELOG.md"
 
 [project.gui-scripts]
 quizai = "quizai.app:run"

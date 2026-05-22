@@ -5,7 +5,7 @@ Thanks for considering a contribution! This document covers the basics.
 ## Getting set up
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/quizai-assistant
+git clone https://github.com/tanumay-deb/quizai-assistant
 cd quizai-assistant
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
