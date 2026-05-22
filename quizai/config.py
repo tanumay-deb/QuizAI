@@ -59,6 +59,10 @@ class Config:
     play_sound: bool = True
     show_notifications: bool = True
 
+    # ---- Mobile companion.
+    mobile_server_enabled: bool = True
+    mobile_server_port: int = 7432
+
     # ---- Misc.
     show_window_on_startup: bool = False
 

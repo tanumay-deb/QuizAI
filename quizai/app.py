@@ -35,6 +35,7 @@ from quizai.logger import get_logger, setup_logging
 from quizai.main_window import MainWindow
 from quizai.notifier import Notifier
 from quizai.overlay import OverlayWindow
+from quizai.mobile_server import MobileServer
 from quizai.scheduler import AutoCaptureScheduler
 from quizai.screen_capture import capture as capture_screen
 from quizai.tray import TrayIcon
@@ -234,6 +235,12 @@ class QuizAIApp(QObject):
         self._scheduler = AutoCaptureScheduler(self._auto_capture_trigger)
         self._scheduler.set_interval(self._config.auto_capture_interval)
 
+        # ---- Mobile companion server.
+        self._mobile = MobileServer(self._config.mobile_server_port)
+        if self._config.mobile_server_enabled:
+            if self._mobile.start():
+                self._window.set_mobile_url(self._mobile.local_url())
+
         # ---- API credentials.
         if not self._config.effective_api_key():
             self._prompt_for_api_key()
@@ -250,6 +257,10 @@ class QuizAIApp(QObject):
     # ------------------------------------------------------ shutdown / quit
     def shutdown(self) -> None:
         log.info("Shutting down")
+        try:
+            self._mobile.stop()
+        except Exception:
+            log.debug("Mobile server stop failed", exc_info=True)
         try:
             self._scheduler.stop()
         except Exception:
@@ -406,6 +417,9 @@ class QuizAIApp(QObject):
         self._window.refresh_history()
         self._notifier.chime()
 
+        if self._mobile.running:
+            self._mobile.push_answer(question, answer, explanation)
+
     @Slot(str, int)
     def _on_api_error(self, message: str, index: int) -> None:
         if index >= 0:
@@ -442,6 +456,19 @@ class QuizAIApp(QObject):
 
         self._scheduler.set_interval(new_cfg.auto_capture_interval)
         self._apply_hotkeys()
+
+        mobile_port_changed = new_cfg.mobile_server_port != old_cfg.mobile_server_port
+        mobile_enabled_changed = new_cfg.mobile_server_enabled != old_cfg.mobile_server_enabled
+        if mobile_enabled_changed or mobile_port_changed:
+            self._mobile.stop()
+            self._mobile = MobileServer(new_cfg.mobile_server_port)
+            if new_cfg.mobile_server_enabled:
+                if self._mobile.start():
+                    self._window.set_mobile_url(self._mobile.local_url())
+                else:
+                    self._window.set_mobile_url("")
+            else:
+                self._window.set_mobile_url("")
 
     def _push_backend_to_worker(self) -> None:
         key = self._config.effective_api_key()

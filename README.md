@@ -49,6 +49,7 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - 💾 **Searchable history** — every Q&A saved locally in SQLite, never sent anywhere except the AI provider
 - 🔔 **Sound + desktop notifications** — chime on success, error tone on failure (toggleable)
 - 🧩 **Pluggable AI providers** — Google Gemini (free tier) and Anthropic Claude out of the box
+- 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
 
 ## Requirements
 
@@ -119,6 +120,33 @@ The app starts minimized to the tray. Right-click the tray icon for the menu.
 
 All configurable in Settings. Format follows [pynput](https://pynput.readthedocs.io/en/latest/keyboard.html#monitoring-the-keyboard) syntax: `<ctrl>+<shift>+q`, `<cmd>+<alt>+a`, `<f8>`, etc. Leave a field blank to disable that hotkey entirely.
 
+## Mobile companion
+
+QuizAI includes a lightweight built-in web server. Whenever an answer arrives on your desktop it is pushed to every connected browser instantly via [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) — no polling, no refresh.
+
+### How to connect
+
+1. Make sure your phone and PC are on the **same Wi-Fi network**
+2. Open the QuizAI main window — a link appears below the toolbar:
+   ```
+   Mobile companion active — open on your phone: http://192.168.x.x:7432
+   ```
+3. Tap that URL (or type it) in your phone's browser
+4. The page updates automatically each time a new answer is ready
+
+The mobile page is dark-themed and shows the question, answer, and explanation in a clean card layout.
+
+### Settings
+
+Open **Settings → Mobile companion** to:
+
+| Option | Default | Description |
+|---|---|---|
+| Enable mobile companion | On | Toggle the server on/off |
+| Mobile port | `7432` | Change if the port is already in use on your machine |
+
+The server only listens on your local network — it is not reachable from the internet.
+
 ## Building a standalone executable
 
 ```bash
@@ -162,6 +190,7 @@ quizai-assistant/
 │   ├── screen_capture.py    # mss-based screenshot
 │   ├── hotkey_manager.py    # global hotkeys (pynput)
 │   ├── scheduler.py         # auto-capture timer
+│   ├── mobile_server.py     # mobile companion (SSE HTTP server)
 │   ├── history.py           # SQLite Q&A store
 │   ├── config.py            # multi-provider config
 │   ├── logger.py            # rotating file logs
@@ -201,7 +230,9 @@ Nothing leaves your machine except the AI API calls themselves. No telemetry, no
 
 QuizAI is built for personal study, accessibility, and reviewing your own materials. Using it on proctored exams, certifications, or graded coursework you've agreed not to use external aids on is dishonest and violates the rules of nearly every institution. The consequences of getting caught (score cancellation, retest bans, expulsion) are far worse than just doing the work honestly.
 
-What I won't accept in this repo: features designed to defeat exam monitoring (screen-capture exclusion flags, anti-detection measures), features that mirror or relay overlay content to a separate device (a common cheating pattern), or bundled API keys.
+The mobile companion is intended for legitimate study sessions — e.g. reading answers on your phone while working through a practice set at your desk. It connects only over your local Wi-Fi and requires no accounts or external services.
+
+What I won't accept in this repo: features designed to defeat exam monitoring (screen-capture exclusion flags, anti-detection measures) or bundled API keys.
 
 ## License
 

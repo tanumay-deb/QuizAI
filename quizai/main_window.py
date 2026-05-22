@@ -145,6 +145,13 @@ class MainWindow(QWidget):
         toolbar.addWidget(self._settings_btn)
         root.addLayout(toolbar)
 
+        self._mobile_bar = QLabel("")
+        self._mobile_bar.setObjectName("hint")
+        self._mobile_bar.setTextFormat(Qt.TextFormat.RichText)
+        self._mobile_bar.setOpenExternalLinks(True)
+        self._mobile_bar.hide()
+        root.addWidget(self._mobile_bar)
+
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
         # ---- Left pane.
@@ -306,6 +313,16 @@ class MainWindow(QWidget):
             self._config = new_cfg
             self.settings_changed.emit(new_cfg)
 
+    def set_mobile_url(self, url: str) -> None:
+        if url:
+            self._mobile_bar.setText(
+                f"Mobile companion active — open on your phone: "
+                f"<a href='{url}' style='color:#8ab4f8;'>{url}</a>"
+            )
+            self._mobile_bar.show()
+        else:
+            self._mobile_bar.hide()
+
     def apply_config(self, cfg: Config) -> None:
         self._config = cfg
 
@@ -451,6 +468,19 @@ class SettingsDialog(QDialog):
         self._max_height.setValue(self._draft.overlay_max_height)
         form.addRow("Overlay max height:", self._max_height)
 
+        # ---- Mobile companion.
+        self._mobile_enabled = QCheckBox("Enable mobile companion (local Wi-Fi)")
+        self._mobile_enabled.setChecked(self._draft.mobile_server_enabled)
+        form.addRow("Mobile companion:", self._mobile_enabled)
+
+        self._mobile_port = QSpinBox()
+        self._mobile_port.setRange(1024, 65535)
+        self._mobile_port.setValue(self._draft.mobile_server_port)
+        self._mobile_port.setToolTip(
+            "Port the mobile web page is served on. Change if 7432 is already in use."
+        )
+        form.addRow("Mobile port:", self._mobile_port)
+
         # ---- Misc.
         self._startup = QCheckBox("Show main window on startup")
         self._startup.setChecked(self._draft.show_window_on_startup)
@@ -550,6 +580,9 @@ class SettingsDialog(QDialog):
         c.overlay_opacity = float(self._opacity.value())
         c.overlay_width = int(self._width.value())
         c.overlay_max_height = int(self._max_height.value())
+
+        c.mobile_server_enabled = self._mobile_enabled.isChecked()
+        c.mobile_server_port = int(self._mobile_port.value())
 
         c.show_window_on_startup = self._startup.isChecked()
         return c
