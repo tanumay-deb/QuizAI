@@ -448,6 +448,14 @@ class SettingsDialog(QDialog):
         self._hk_dismiss.setPlaceholderText("<ctrl>+<shift>+x")
         form.addRow("Hotkey — dismiss overlay:", self._hk_dismiss)
 
+        self._hk_quit = QLineEdit(getattr(self._draft, "hotkey_quit", ""))
+        self._hk_quit.setPlaceholderText("e.g. <ctrl>+<shift>+k")
+        form.addRow("Hotkey — stop the bot:", self._hk_quit)
+
+        self._hk_quit_alt = QLineEdit(getattr(self._draft, "hotkey_quit_alt", ""))
+        self._hk_quit_alt.setPlaceholderText("e.g. <alt>+q")
+        form.addRow("Hotkey — stop the bot (alt):", self._hk_quit_alt)
+
         # ---- Overlay.
         self._opacity = QDoubleSpinBox()
         self._opacity.setRange(0.4, 1.0)
@@ -600,6 +608,8 @@ class SettingsDialog(QDialog):
         c.hotkey_capture = self._hk_capture.text().strip()
         c.hotkey_toggle_window = self._hk_toggle.text().strip()
         c.hotkey_dismiss_overlay = self._hk_dismiss.text().strip()
+        c.hotkey_quit = self._hk_quit.text().strip()
+        c.hotkey_quit_alt = self._hk_quit_alt.text().strip()
 
         c.overlay_opacity = float(self._opacity.value())
         c.overlay_width = int(self._width.value())

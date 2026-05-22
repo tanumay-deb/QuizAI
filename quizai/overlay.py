@@ -1,6 +1,6 @@
 """Floating semi-transparent always-on-top overlay window.
 
-Renders the current answer + explanation, with a paginator when several
+Renders the current answer + explanation in a scrollable list when several
 questions were extracted from one screenshot. Drag with the mouse to
 reposition; click ✕ to dismiss; click 📌 to pin (disables auto-hide).
 
@@ -32,11 +32,10 @@ log = get_logger(__name__)
 
 @dataclass
 class QAEntry:
-    """One question slot in the overlay's paginator.
+    """One question slot in the overlay's list.
 
     `answer` / `explanation` are None until that question has been answered;
-    the overlay shows a "thinking" placeholder for unanswered slots when the
-    user navigates to them.
+    the overlay shows a "thinking" placeholder for unanswered slots.
     """
 
     question: str
@@ -56,11 +55,6 @@ OVERLAY_QSS = """
     font-weight: 600;
     letter-spacing: 1px;
     text-transform: uppercase;
-}
-#overlayPager {
-    color: #b5b9c4;
-    font-size: 11px;
-    letter-spacing: 0.5px;
 }
 #overlayQuestion {
     color: #b5b9c4;
@@ -85,20 +79,15 @@ OVERLAY_QSS = """
     color: #ff8a8a;
     font-size: 13px;
 }
-QPushButton#overlayClose, QPushButton#overlayPin,
-QPushButton#overlayPrev, QPushButton#overlayNext {
+QPushButton#overlayClose, QPushButton#overlayPin {
     background: transparent;
     color: #c5c9d2;
     border: none;
     font-size: 14px;
     padding: 2px 8px;
 }
-QPushButton#overlayClose:hover, QPushButton#overlayPin:hover,
-QPushButton#overlayPrev:hover, QPushButton#overlayNext:hover {
+QPushButton#overlayClose:hover, QPushButton#overlayPin:hover {
     color: #ffffff;
-}
-QPushButton#overlayPrev:disabled, QPushButton#overlayNext:disabled {
-    color: #4a4f5c;
 }
 QScrollArea, QScrollArea > QWidget > QWidget {
     background: transparent;
@@ -124,9 +113,8 @@ class OverlayWindow(QWidget):
     """Frameless, always-on-top, semi-transparent answer display."""
 
     dismissed = Signal()
-    # Fired when the user navigates to a question that hasn't been answered
-    # yet. The orchestrator listens and dispatches an API job.
-    question_answer_requested = Signal(int)  # index in self._entries
+    # Fired when the user navigates to a question that hasn't been answered (legacy paginator support, mostly unused now since we queue all at once).
+    question_answer_requested = Signal(int) 
 
     def __init__(self, opacity: float = 0.92, width: int = 480, max_height: int = 600):
         super().__init__()
@@ -139,9 +127,8 @@ class OverlayWindow(QWidget):
         self._auto_hide_timer.timeout.connect(self._on_auto_hide)
         self._pinned = False
 
-        # Paginator state.
+        # State
         self._entries: list[QAEntry] = []
-        self._current = 0
 
         self._build_ui()
         self._apply_window_flags()
@@ -167,28 +154,7 @@ class OverlayWindow(QWidget):
         title = QLabel("QuizAI", self._root)
         title.setObjectName("overlayTitle")
         header.addWidget(title)
-
-        # Paginator label sits between title and right-side buttons.
-        self._pager_label = QLabel("", self._root)
-        self._pager_label.setObjectName("overlayPager")
-        header.addSpacing(8)
-        header.addWidget(self._pager_label)
         header.addStretch(1)
-
-        # Prev / next paginator buttons. Hidden when only one question.
-        self._prev_btn = QPushButton("‹", self._root)
-        self._prev_btn.setObjectName("overlayPrev")
-        self._prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._prev_btn.setToolTip("Previous question")
-        self._prev_btn.clicked.connect(self._on_prev)
-        header.addWidget(self._prev_btn)
-
-        self._next_btn = QPushButton("›", self._root)
-        self._next_btn.setObjectName("overlayNext")
-        self._next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._next_btn.setToolTip("Next question")
-        self._next_btn.clicked.connect(self._on_next)
-        header.addWidget(self._next_btn)
 
         self._pin_btn = QPushButton("📌", self._root)
         self._pin_btn.setObjectName("overlayPin")
@@ -212,50 +178,18 @@ class OverlayWindow(QWidget):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
 
-        body = QWidget(self._scroll)
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
+        self._body = QWidget(self._scroll)
+        self._body_layout = QVBoxLayout(self._body)
+        self._body_layout.setContentsMargins(0, 0, 0, 0)
+        self._body_layout.setSpacing(8)
 
-        self._status_label = QLabel("", body)
-        self._status_label.setObjectName("overlayStatus")
-        self._status_label.setWordWrap(True)
-        self._status_label.hide()
-        body_layout.addWidget(self._status_label)
-
-        self._error_label = QLabel("", body)
-        self._error_label.setObjectName("overlayError")
-        self._error_label.setWordWrap(True)
-        self._error_label.hide()
-        body_layout.addWidget(self._error_label)
-
-        self._question_label = QLabel("", body)
-        self._question_label.setObjectName("overlayQuestion")
-        self._question_label.setWordWrap(True)
-        self._question_label.hide()
-        body_layout.addWidget(self._question_label)
-
-        self._answer_label = QLabel("", body)
-        self._answer_label.setObjectName("overlayAnswer")
-        self._answer_label.setWordWrap(True)
-        self._answer_label.hide()
-        body_layout.addWidget(self._answer_label)
-
-        self._explanation_label = QLabel("", body)
-        self._explanation_label.setObjectName("overlayExplanation")
-        self._explanation_label.setWordWrap(True)
-        self._explanation_label.hide()
-        body_layout.addWidget(self._explanation_label)
-
-        body_layout.addStretch(1)
-        self._scroll.setWidget(body)
+        self._body_layout.addStretch(1)
+        self._scroll.setWidget(self._body)
         root_layout.addWidget(self._scroll, 1)
 
         self.setFixedWidth(self._target_width)
         self.resize(self._target_width, 160)
 
-        # Pager starts hidden until we get >1 entry.
-        self._update_pager_visibility()
 
     def _apply_window_flags(self) -> None:
         flags = (
@@ -267,6 +201,13 @@ class OverlayWindow(QWidget):
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+
+    def _clear_body(self):
+        while self._body_layout.count() > 1: # keeping the stretch at the end
+            item = self._body_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
 
     # ------------------------------------------------------------- public API
     def set_opacity(self, opacity: float) -> None:
@@ -285,27 +226,20 @@ class OverlayWindow(QWidget):
         """Initial 'looking for question' state — no entries yet."""
         self._cancel_auto_hide()
         self._entries = []
-        self._current = 0
-        self._error_label.hide()
-        self._question_label.hide()
-        self._answer_label.hide()
-        self._explanation_label.hide()
-        self._status_label.setText(message)
-        self._status_label.show()
-        self._update_pager_visibility()
+        self._clear_body()
+        lbl = QLabel(message, self._body)
+        lbl.setObjectName("overlayStatus")
+        self._body_layout.insertWidget(0, lbl)
         self._show_positioned()
 
     def show_error(self, message: str) -> None:
         self._cancel_auto_hide()
         self._entries = []
-        self._current = 0
-        self._status_label.hide()
-        self._question_label.hide()
-        self._answer_label.hide()
-        self._explanation_label.hide()
-        self._error_label.setText(message)
-        self._error_label.show()
-        self._update_pager_visibility()
+        self._clear_body()
+        lbl = QLabel(message, self._body)
+        lbl.setObjectName("overlayError")
+        lbl.setWordWrap(True)
+        self._body_layout.insertWidget(0, lbl)
         self._show_positioned()
         self._schedule_auto_hide(10_000)
 
@@ -318,28 +252,23 @@ class OverlayWindow(QWidget):
         self.set_answer_for(0, answer, explanation)
 
     def show_questions(self, questions: list[str]) -> None:
-        """Populate the paginator with one or more questions and display the
-        first one in a 'thinking' state. The orchestrator should call
+        """Populate the list with one or more questions. The orchestrator should call
         set_answer_for(i, ...) as each answer arrives."""
         self._cancel_auto_hide()
         self._entries = [QAEntry(question=q) for q in questions if q.strip()]
-        self._current = 0
-        self._update_pager_visibility()
         if not self._entries:
             self.show_no_question()
             return
-        self._render_current()
+        self._render_all()
         self._show_positioned()
 
     def set_answer_for(self, index: int, answer: str, explanation: str) -> None:
-        """Update one slot with its answer. Re-renders if it's the visible one."""
+        """Update one slot with its answer. Re-renders."""
         if not (0 <= index < len(self._entries)):
             return
         self._entries[index].answer = answer
         self._entries[index].explanation = explanation
-        if index == self._current:
-            self._render_current()
-        # Once any answer is in, start the auto-hide clock.
+        self._render_all()
         self._schedule_auto_hide(45_000)
 
     def set_error_for(self, index: int, message: str) -> None:
@@ -348,12 +277,11 @@ class OverlayWindow(QWidget):
             return
         self._entries[index].answer = f"(error: {message})"
         self._entries[index].explanation = ""
-        if index == self._current:
-            self._render_current()
+        self._render_all()
         self._schedule_auto_hide(20_000)
 
     def current_index(self) -> int:
-        return self._current
+        return 0
 
     def total_entries(self) -> int:
         return len(self._entries)
@@ -363,72 +291,47 @@ class OverlayWindow(QWidget):
         self.hide()
         self.dismissed.emit()
 
-    # ----------------------------------------------------------- paginator
-    def _on_prev(self) -> None:
-        if self._current > 0:
-            self._current -= 1
-            self._render_current()
-            self._maybe_request_answer()
-
-    def _on_next(self) -> None:
-        if self._current < len(self._entries) - 1:
-            self._current += 1
-            self._render_current()
-            self._maybe_request_answer()
-
-    def _maybe_request_answer(self) -> None:
-        """If the current entry hasn't been answered yet, ask the orchestrator
-        to answer it."""
-        entry = self._entries[self._current]
-        if entry.answer is None:
-            self.question_answer_requested.emit(self._current)
-
-    def _update_pager_visibility(self) -> None:
-        show = len(self._entries) > 1
-        self._prev_btn.setVisible(show)
-        self._next_btn.setVisible(show)
-        self._pager_label.setVisible(show)
-        if show:
-            self._pager_label.setText(f"{self._current + 1} / {len(self._entries)}")
-        else:
-            self._pager_label.setText("")
-        self._prev_btn.setEnabled(self._current > 0)
-        self._next_btn.setEnabled(self._current < len(self._entries) - 1)
-
-    def _render_current(self) -> None:
-        """Render the entry at `self._current`."""
-        self._status_label.hide()
-        self._error_label.hide()
-
-        if not self._entries:
-            self._question_label.hide()
-            self._answer_label.hide()
-            self._explanation_label.hide()
-            self._update_pager_visibility()
-            return
-
-        entry = self._entries[self._current]
-
-        q_preview = _truncate(entry.question, 240)
-        self._question_label.setText(f"Q: {q_preview}")
-        self._question_label.show()
-
-        if entry.answer is None:
-            # Pending.
-            self._answer_label.hide()
-            self._explanation_label.hide()
-            self._status_label.setText("Thinking…")
-            self._status_label.show()
-        else:
-            self._answer_label.setText(entry.answer or "(no answer)")
-            self._answer_label.show()
-            if entry.explanation:
-                self._explanation_label.setText(entry.explanation)
-                self._explanation_label.show()
+    def _render_all(self) -> None:
+        self._clear_body()
+        
+        for i, entry in enumerate(self._entries):
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 12)
+            layout.setSpacing(6)
+            
+            q_preview = _truncate(entry.question, 500)
+            q_lbl = QLabel(f"Q: {q_preview}")
+            q_lbl.setObjectName("overlayQuestion")
+            q_lbl.setWordWrap(True)
+            layout.addWidget(q_lbl)
+            
+            if entry.answer is None:
+                # Pending
+                s_lbl = QLabel("Thinking…")
+                s_lbl.setObjectName("overlayStatus")
+                layout.addWidget(s_lbl)
             else:
-                self._explanation_label.hide()
-
-        self._update_pager_visibility()
+                a_lbl = QLabel(entry.answer or "(no answer)")
+                a_lbl.setObjectName("overlayAnswer")
+                a_lbl.setWordWrap(True)
+                layout.addWidget(a_lbl)
+                
+                if entry.explanation:
+                    e_lbl = QLabel(entry.explanation)
+                    e_lbl.setObjectName("overlayExplanation")
+                    e_lbl.setWordWrap(True)
+                    layout.addWidget(e_lbl)
+            
+            # Separator if not the last item
+            if i < len(self._entries) - 1:
+                line = QFrame()
+                line.setFrameShape(QFrame.Shape.HLine)
+                line.setStyleSheet("background-color: rgba(255, 255, 255, 20); border: none; height: 1px;")
+                layout.addWidget(line)
+            
+            self._body_layout.insertWidget(self._body_layout.count() - 1, container)
+            
         self._fit_height()
 
     # ----------------------------------------------------------- positioning

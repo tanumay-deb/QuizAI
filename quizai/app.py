@@ -196,9 +196,6 @@ class QuizAIApp(QObject):
             width=self._config.overlay_width,
             max_height=self._config.overlay_max_height,
         )
-        # When the user pages to an unanswered slot, the overlay asks us to
-        # answer it. We dispatch a worker job.
-        self._overlay.question_answer_requested.connect(self._on_paginator_answer_requested)
 
         # ---- Tray.
         self._tray = TrayIcon(self)
@@ -338,20 +335,6 @@ class QuizAIApp(QObject):
         self._overlay.show_thinking("Thinking…")
         self._job_requested.emit(_ManualJob(text=text))
 
-    def _on_paginator_answer_requested(self, index: int) -> None:
-        """User paginated to an unanswered slot — fire a fresh job for that one.
-        Does not set `_busy` since this is a secondary, on-demand operation."""
-        # Pull the question text out of the overlay's state.
-        total = self._overlay.total_entries()
-        if index < 0 or index >= total:
-            return
-        # The overlay owns the QAEntry list. We access it via a small helper
-        # rather than reaching into a private attr.
-        entry_question = _question_at(self._overlay, index)
-        if not entry_question:
-            return
-        self._job_requested.emit(_AnswerJob(index=index, question=entry_question))
-
     def _auto_capture_trigger(self) -> None:
         """Called from the scheduler's daemon thread; hops to the Qt thread."""
         QMetaObject.invokeMethod(
@@ -387,9 +370,8 @@ class QuizAIApp(QObject):
 
     @Slot(list)
     def _on_questions_extracted(self, questions: list) -> None:
-        """Vision found one or more questions. Populate the overlay paginator
-        with placeholders; the first answer will arrive shortly via
-        _on_answer_ready."""
+        """Vision found one or more questions. Pass them to the overlay and queue
+        jobs for all subsequent questions to be answered sequentially."""
         qs = [str(q) for q in questions if str(q).strip()]
         if not qs:
             return
@@ -397,8 +379,12 @@ class QuizAIApp(QObject):
         if len(qs) > 1:
             self._notifier.notify(
                 __app_name__,
-                f"Found {len(qs)} questions. Use ‹ › to navigate.",
+                f"Found {len(qs)} questions. Processing answers...",
             )
+        # The ApiWorker answers the first question synchronously before emitting this signal.
+        # We need to queue the rest here so they get processed sequentially.
+        for i in range(1, len(qs)):
+            self._job_requested.emit(_AnswerJob(index=i, question=qs[i]))
 
     @Slot()
     def _on_no_question_found(self) -> None:
@@ -549,6 +535,10 @@ class QuizAIApp(QObject):
             bindings[self._config.hotkey_dismiss_overlay] = self._invoke_in_qt(
                 self._overlay.dismiss
             )
+        if getattr(self._config, "hotkey_quit", ""):
+            bindings[self._config.hotkey_quit] = self._invoke_in_qt(self.shutdown)
+        if getattr(self._config, "hotkey_quit_alt", ""):
+            bindings[self._config.hotkey_quit_alt] = self._invoke_in_qt(self.shutdown)
         self._hotkeys.set_bindings(bindings)
 
     def _invoke_in_qt(self, fn) -> callable:
@@ -589,17 +579,6 @@ class QuizAIApp(QObject):
             return
         self._config.set_api_key_for_provider(provider, text)
         save_config(self._config)
-
-
-# ---------------------------------------------------------------- small helper
-def _question_at(overlay: OverlayWindow, index: int) -> str:
-    """Tiny accessor so the orchestrator doesn't poke into overlay internals."""
-    entries = getattr(overlay, "_entries", None)
-    if not entries:
-        return ""
-    if 0 <= index < len(entries):
-        return entries[index].question
-    return ""
 
 
 # =========================================================== entry point

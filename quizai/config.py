@@ -49,6 +49,8 @@ class Config:
     hotkey_capture: str = "<ctrl>+<shift>+q"
     hotkey_toggle_window: str = "<ctrl>+<shift>+h"
     hotkey_dismiss_overlay: str = "<ctrl>+<shift>+x"
+    hotkey_quit: str = ""
+    hotkey_quit_alt: str = ""
 
     # ---- Overlay appearance.
     overlay_opacity: float = 0.92
@@ -73,20 +75,22 @@ class Config:
 
     # ---------------------------------------------------------- derived getters
     def effective_api_key(self) -> str:
-        """API key for the currently selected provider, env vars first."""
+        """API key for the currently selected provider, UI settings first, then env vars."""
         provider = (self.provider or DEFAULT_PROVIDER).lower()
         if provider == "anthropic":
-            env = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-            if env:
-                return env
-            return (self.anthropic_api_key or "").strip()
-        env = (
+            ui_key = (self.anthropic_api_key or "").strip()
+            if ui_key:
+                return ui_key
+            return os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            
+        ui_key = (self.gemini_api_key or "").strip()
+        if ui_key:
+            return ui_key
+            
+        return (
             os.environ.get("GEMINI_API_KEY", "").strip()
             or os.environ.get("GOOGLE_API_KEY", "").strip()
         )
-        if env:
-            return env
-        return (self.gemini_api_key or "").strip()
 
     def effective_model(self) -> str:
         provider = (self.provider or DEFAULT_PROVIDER).lower()
