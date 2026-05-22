@@ -15,6 +15,7 @@ import json
 import queue
 import socket
 import threading
+import uuid
 from typing import Optional
 
 from quizai.logger import get_logger
@@ -243,7 +244,10 @@ class MobileServer:
         self._clients: list[queue.Queue[str]] = []
         self._lock = threading.Lock()
         self._qa_list: list[dict] = []   # full history; each item is a dict
-        self._counter: int = 0           # monotonic id for deduplication
+        self._counter: int = 0           # monotonic id within this session
+        # Prefix every id with a per-session token so a stale browser tab
+        # from a previous run can't dedupe ids from a fresh server.
+        self._session: str = uuid.uuid4().hex[:8]
         self._server: Optional[_ThreadedServer] = None
 
     # ----------------------------------------------------------------- lifecycle
@@ -280,7 +284,7 @@ class MobileServer:
         with self._lock:
             self._counter += 1
             entry = {
-                "id": self._counter,
+                "id": f"{self._session}-{self._counter}",
                 "question": question,
                 "answer": answer,
                 "explanation": explanation,
@@ -299,7 +303,7 @@ class MobileServer:
             for q in dead:
                 self._clients.remove(q)
 
-        log.info("Mobile: pushed answer id=%d to %d SSE client(s)", self._counter, len(self._clients))
+        log.info("Mobile: pushed answer id=%s to %d SSE client(s)", entry["id"], len(self._clients))
 
     # ----------------------------------------------------------------- client management
     def _register_client(self, q: queue.Queue[str]) -> list[str]:
