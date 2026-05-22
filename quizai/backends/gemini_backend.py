@@ -1,14 +1,22 @@
 """Google Gemini backend using the google-genai SDK.
 
 Free tier:
-  - Gemini 2.5 Flash: ~250 requests/day, ~10 RPM (subject to change)
-  - Gemini 2.5 Pro:   smaller daily quota, slower
-  - Gemini 2.5 Flash-Lite: highest quota, fastest, slightly weaker reasoning
+  - Gemini 2.5 Flash:      best balance of capability and quota
+  - Gemini 2.5 Pro:        smartest, smaller daily quota
+  - Gemini 2.5 Flash-Lite: highest quota, fastest, lighter on reasoning;
+                           most resistant to 503 overload errors
 
 Get a free key at https://aistudio.google.com/apikey — no card required.
+
+Transient errors (503 UNAVAILABLE, overloaded, deadline exceeded) are
+retried automatically with exponential backoff before being surfaced to
+the user.
 """
 
 from __future__ import annotations
+
+import time
+from typing import Callable, TypeVar
 
 from quizai.backends.base import (
     ANSWER_SYSTEM,
@@ -24,6 +32,12 @@ from quizai.logger import get_logger
 
 log = get_logger(__name__)
 
+T = TypeVar("T")
+
+# Retry config for transient errors. 3 attempts, 1s/2s/4s waits.
+_MAX_ATTEMPTS = 3
+_INITIAL_BACKOFF_S = 1.0
+
 
 class GeminiBackend(Backend):
     name = "gemini"
@@ -35,7 +49,8 @@ class GeminiBackend(Backend):
             from google.genai import types  # noqa: F401  (used in methods)
         except ImportError as e:
             raise BackendError(
-                "The 'google-genai' package is not installed. Run: pip install google-genai"
+                "The 'google-genai' package is not installed. "
+                "Run: pip install google-genai"
             ) from e
         try:
             self._client = genai.Client(api_key=api_key)
@@ -46,8 +61,8 @@ class GeminiBackend(Backend):
     def detect_and_extract_question(self, png_bytes: bytes) -> DetectionResult:
         from google.genai import types
 
-        try:
-            response = self._client.models.generate_content(
+        def _call():
+            return self._client.models.generate_content(
                 model=self._model,
                 contents=[
                     types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
@@ -55,11 +70,13 @@ class GeminiBackend(Backend):
                 ],
                 config=types.GenerateContentConfig(
                     system_instruction=DETECT_SYSTEM,
-                    # Vision detection is short — keep ceiling tight to save quota.
                     max_output_tokens=1024,
                     temperature=0.0,
                 ),
             )
+
+        try:
+            response = _with_retry(_call)
         except Exception as e:
             raise BackendError(_pretty_gemini_error(e)) from e
 
@@ -69,8 +86,8 @@ class GeminiBackend(Backend):
     def answer_question(self, question: str) -> AnswerResult:
         from google.genai import types
 
-        try:
-            response = self._client.models.generate_content(
+        def _call():
+            return self._client.models.generate_content(
                 model=self._model,
                 contents=[question],
                 config=types.GenerateContentConfig(
@@ -79,22 +96,77 @@ class GeminiBackend(Backend):
                     temperature=0.2,
                 ),
             )
+
+        try:
+            response = _with_retry(_call)
         except Exception as e:
             raise BackendError(_pretty_gemini_error(e)) from e
 
         return parse_answer_text(_extract_text(response))
 
 
+# ---------------------------------------------------------------------- retry
+def _with_retry(fn: Callable[[], T]) -> T:
+    """Retry transient Gemini errors with exponential backoff.
+
+    Retries on 503 UNAVAILABLE, "overloaded", and "deadline exceeded".
+    Other errors (auth, quota, safety, malformed requests) bubble up
+    immediately — retrying those would just waste API calls.
+    """
+    delay = _INITIAL_BACKOFF_S
+    last_err: Exception | None = None
+
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            if not _is_transient(e) or attempt == _MAX_ATTEMPTS:
+                raise
+            log.info(
+                "Gemini transient error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt,
+                _MAX_ATTEMPTS,
+                _short_error(e),
+                delay,
+            )
+            time.sleep(delay)
+            delay *= 2
+
+    # Defensive — _MAX_ATTEMPTS >= 1 means we either returned or raised above.
+    assert last_err is not None
+    raise last_err
+
+
+def _is_transient(e: Exception) -> bool:
+    """True if the error looks like one a retry might fix."""
+    text = str(e).lower()
+    return (
+        "unavailable" in text
+        or "503" in str(e)
+        or "overloaded" in text
+        or "deadline" in text
+        or "timeout" in text
+        # Google sometimes returns 500 on transient backend issues.
+        or "internal error" in text
+        or "500" in str(e)
+    )
+
+
+def _short_error(e: Exception) -> str:
+    """One-line error string for logs."""
+    s = str(e).replace("\n", " ").strip()
+    return s if len(s) <= 120 else s[:117] + "…"
+
+
 # ---------------------------------------------------------------------- helpers
 def _extract_text(response) -> str:
-    """Pull text out of a generate_content response, handling the various
-    shapes the SDK might return."""
-    # Fast path: response.text is the SDK's convenience accessor.
+    """Pull text out of a generate_content response, handling both shapes
+    the SDK can return (text shortcut vs candidates → parts)."""
     text = getattr(response, "text", None)
     if text:
         return text.strip()
 
-    # Manual path: walk candidates -> content.parts -> .text.
     parts_text: list[str] = []
     try:
         candidates = getattr(response, "candidates", None) or []
@@ -111,13 +183,30 @@ def _extract_text(response) -> str:
 
 
 def _pretty_gemini_error(e: Exception) -> str:
-    """Best-effort cleanup of Gemini error messages for the UI."""
+    """Convert raw Gemini exceptions into human-readable UI messages."""
     text = str(e) or e.__class__.__name__
     low = text.lower()
-    if "api key" in low or "api_key" in low or "permission" in low or "unauthorized" in low:
+
+    if (
+        "api key" in low
+        or "api_key" in low
+        or "permission" in low
+        or "unauthorized" in low
+    ):
         return "Invalid Gemini API key. Get a free one at aistudio.google.com/apikey."
     if "quota" in low or "resource_exhausted" in low or "429" in text:
-        return "Gemini free-tier quota hit. Try again in a minute, or upgrade in AI Studio."
+        return (
+            "Gemini free-tier quota hit. Try again in a minute, or upgrade "
+            "in AI Studio."
+        )
+    if "unavailable" in low or "503" in text or "overloaded" in low:
+        return (
+            "Gemini is overloaded right now (even after retries). Try again "
+            "shortly, or switch to gemini-2.5-flash-lite in Settings for "
+            "better availability."
+        )
+    if "500" in text or "internal error" in low:
+        return "Gemini hit a server error. Try again in a moment."
     if "safety" in low or "blocked" in low:
         return "Gemini blocked the response for safety reasons. Try rephrasing."
     if "deadline" in low or "timeout" in low:
