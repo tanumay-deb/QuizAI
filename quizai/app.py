@@ -223,6 +223,7 @@ class QuizAIApp(QObject):
         self._worker.questions_extracted.connect(self._on_questions_extracted)
         self._worker.no_question_found.connect(self._on_no_question_found)
         self._worker.answer_ready.connect(self._on_answer_ready)
+        self._worker.answer_ready.connect(self._on_answer_ready_mobile)
         self._worker.api_error.connect(self._on_api_error)
 
         self._worker_thread.start()
@@ -417,8 +418,22 @@ class QuizAIApp(QObject):
         self._window.refresh_history()
         self._notifier.chime()
 
+    @Slot(str, str, str, str, int)
+    def _on_answer_ready_mobile(
+        self,
+        source: str,
+        question: str,
+        answer: str,
+        explanation: str,
+        index: int,
+    ) -> None:
+        """Dedicated slot for mobile push — runs independently of _on_answer_ready."""
+        log.info("Mobile slot fired: running=%s source=%s", self._mobile.running, source)
         if self._mobile.running:
-            self._mobile.push_answer(question, answer, explanation)
+            try:
+                self._mobile.push_answer(question, answer, explanation)
+            except Exception:
+                log.exception("Mobile companion push failed")
 
     @Slot(str, int)
     def _on_api_error(self, message: str, index: int) -> None:
