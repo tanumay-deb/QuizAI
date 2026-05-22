@@ -19,6 +19,15 @@ from typing import Any
 
 from quizai.logger import get_logger
 
+# ============================================================================ #
+#                           HARDCODED CREDENTIALS                              #
+#   If you don't want to use the Settings UI, you can paste your keys here.    #
+#   NOTE: The Settings UI will still override these if you type anything in it.#
+# ============================================================================ #
+HARDCODED_GEMINI_API_KEY = ""
+HARDCODED_TELEGRAM_TOKEN = ""
+HARDCODED_TELEGRAM_CHAT_ID = ""
+
 log = get_logger(__name__)
 
 CONFIG_DIR = Path.home() / ".quizai"
@@ -37,7 +46,7 @@ class Config:
 
     # ---- LLM provider settings.
     provider: str = DEFAULT_PROVIDER
-    gemini_api_key: str = ""
+    gemini_api_key: str = HARDCODED_GEMINI_API_KEY
     anthropic_api_key: str = ""
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
 
@@ -67,8 +76,8 @@ class Config:
 
     # ---- Telegram companion.
     telegram_enabled: bool = True
-    telegram_token: str = "8715463243:AAH3-MTXtLWvZOsSx8Oow_QNDseAXjQVsBw"
-    telegram_chat_id: str = "8715463243"
+    telegram_token: str = HARDCODED_TELEGRAM_TOKEN
+    telegram_chat_id: str = HARDCODED_TELEGRAM_CHAT_ID
 
     # ---- Misc.
     show_window_on_startup: bool = False

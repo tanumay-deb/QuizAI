@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QFrame,
     QSpinBox,
     QSplitter,
     QTextBrowser,
@@ -375,7 +377,15 @@ class SettingsDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        form = QFormLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; }")
+        
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("QWidget { background: transparent; }")
+        
+        form = QFormLayout(scroll_widget)
         form.setSpacing(8)
 
         # ---- Provider.
@@ -518,7 +528,8 @@ class SettingsDialog(QDialog):
         self._startup.setChecked(self._draft.show_window_on_startup)
         form.addRow("", self._startup)
 
-        layout.addLayout(form)
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
 
         footer = QLabel(
             "Hotkey format: <code>&lt;ctrl&gt;+&lt;shift&gt;+q</code>. "
@@ -531,7 +542,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(footer)
 
         btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
