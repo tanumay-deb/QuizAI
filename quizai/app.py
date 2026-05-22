@@ -167,6 +167,25 @@ def _job_index(job: object) -> int:
     return -1
 
 
+_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "telegram_token"}
+
+
+def _diff_config(old: Config, new: Config) -> str:
+    """Return a compact summary of which fields differ between two configs."""
+    old_d = old.to_dict()
+    new_d = new.to_dict()
+    changes: list[str] = []
+    for k in sorted(set(old_d) | set(new_d)):
+        ov, nv = old_d.get(k), new_d.get(k)
+        if ov == nv:
+            continue
+        if k in _SECRET_FIELDS:
+            changes.append(f"{k}=(redacted, len {len(ov or '')}→{len(nv or '')})")
+        else:
+            changes.append(f"{k}={ov!r}→{nv!r}")
+    return ", ".join(changes) if changes else "(no changes)"
+
+
 # ================================================================ application
 class QuizAIApp(QObject):
     """Single instance that owns the lifecycle of all windows/threads."""
@@ -468,6 +487,7 @@ class QuizAIApp(QObject):
         old_cfg = self._config
         self._config = new_cfg
         save_config(new_cfg)
+        log.info("Settings saved; applying changes: %s", _diff_config(old_cfg, new_cfg))
 
         # Overlay appearance.
         self._overlay.set_opacity(new_cfg.overlay_opacity)
@@ -483,6 +503,11 @@ class QuizAIApp(QObject):
         key_changed = new_cfg.effective_api_key() != old_cfg.effective_api_key()
         model_changed = new_cfg.effective_model() != old_cfg.effective_model()
         if (provider_changed or key_changed or model_changed) and new_cfg.effective_api_key():
+            log.info(
+                "Re-initialising backend: provider=%s model=%s",
+                new_cfg.provider,
+                new_cfg.effective_model(),
+            )
             self._push_backend_to_worker()
 
         self._scheduler.set_interval(new_cfg.auto_capture_interval)
@@ -491,6 +516,11 @@ class QuizAIApp(QObject):
         mobile_port_changed = new_cfg.mobile_server_port != old_cfg.mobile_server_port
         mobile_enabled_changed = new_cfg.mobile_server_enabled != old_cfg.mobile_server_enabled
         if mobile_enabled_changed or mobile_port_changed:
+            log.info(
+                "Restarting mobile server: enabled=%s port=%d",
+                new_cfg.mobile_server_enabled,
+                new_cfg.mobile_server_port,
+            )
             self._mobile.stop()
             self._mobile = MobileServer(new_cfg.mobile_server_port)
             if new_cfg.mobile_server_enabled:
@@ -507,6 +537,12 @@ class QuizAIApp(QObject):
             new_cfg.telegram_chat_id != old_cfg.telegram_chat_id
         )
         if telegram_changed:
+            log.info(
+                "Restarting Telegram notifier: enabled=%s token_set=%s chat_id_set=%s",
+                new_cfg.telegram_enabled,
+                bool(new_cfg.telegram_token),
+                bool(new_cfg.telegram_chat_id),
+            )
             self._telegram.stop_polling()
             self._telegram = TelegramNotifier(new_cfg.telegram_token, new_cfg.telegram_chat_id)
             if new_cfg.telegram_enabled:

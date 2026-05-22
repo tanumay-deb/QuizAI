@@ -51,6 +51,15 @@ class TelegramNotifier:
 
     def start_polling(self, callback: Callable[[str], None]) -> None:
         if not self.configured:
+            missing = []
+            if not self._token:
+                missing.append("bot token")
+            if not self._chat_id:
+                missing.append("chat ID")
+            log.warning(
+                "Telegram is enabled but %s is empty — open Settings → Telegram to fill it in.",
+                " and ".join(missing),
+            )
             return
         self._callback = callback
         self._running = True
