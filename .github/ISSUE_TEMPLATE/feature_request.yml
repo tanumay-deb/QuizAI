@@ -1,0 +1,30 @@
+name: ✨ Feature request
+description: Suggest an idea for QuizAI Assistant.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What's painful or impossible today that this feature would fix?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to see happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Other ways you've thought about solving this.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Mockups, links, related tools, etc.
