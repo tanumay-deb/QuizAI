@@ -481,6 +481,30 @@ class SettingsDialog(QDialog):
         )
         form.addRow("Mobile port:", self._mobile_port)
 
+        # ---- Telegram companion.
+        self._telegram_enabled = QCheckBox("Enable two-way Telegram companion")
+        self._telegram_enabled.setChecked(self._draft.telegram_enabled)
+        form.addRow("Telegram bot:", self._telegram_enabled)
+
+        self._telegram_token = QLineEdit()
+        self._telegram_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self._telegram_token.setText(self._draft.telegram_token)
+        form.addRow("Telegram bot token:", self._telegram_token)
+
+        self._telegram_chat_id = QLineEdit()
+        self._telegram_chat_id.setText(self._draft.telegram_chat_id)
+        form.addRow("Telegram chat ID:", self._telegram_chat_id)
+
+        self._telegram_help = QLabel(
+            "1. Talk to <a href='https://t.me/BotFather' style='color:#8ab4f8;'>@BotFather</a> to create a bot & get a token.<br>"
+            "2. Send any message to your new bot.<br>"
+            "3. Talk to <a href='https://t.me/userinfobot' style='color:#8ab4f8;'>@userinfobot</a> to get your chat ID."
+        )
+        self._telegram_help.setObjectName("hint")
+        self._telegram_help.setWordWrap(True)
+        self._telegram_help.setOpenExternalLinks(True)
+        form.addRow("", self._telegram_help)
+
         # ---- Misc.
         self._startup = QCheckBox("Show main window on startup")
         self._startup.setChecked(self._draft.show_window_on_startup)
@@ -583,6 +607,10 @@ class SettingsDialog(QDialog):
 
         c.mobile_server_enabled = self._mobile_enabled.isChecked()
         c.mobile_server_port = int(self._mobile_port.value())
+
+        c.telegram_enabled = self._telegram_enabled.isChecked()
+        c.telegram_token = self._telegram_token.text().strip()
+        c.telegram_chat_id = self._telegram_chat_id.text().strip()
 
         c.show_window_on_startup = self._startup.isChecked()
         return c

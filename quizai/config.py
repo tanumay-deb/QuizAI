@@ -63,6 +63,11 @@ class Config:
     mobile_server_enabled: bool = True
     mobile_server_port: int = 7432
 
+    # ---- Telegram companion.
+    telegram_enabled: bool = False
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
+
     # ---- Misc.
     show_window_on_startup: bool = False
 

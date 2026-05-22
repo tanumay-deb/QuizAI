@@ -39,6 +39,7 @@ from quizai.mobile_server import MobileServer
 from quizai.scheduler import AutoCaptureScheduler
 from quizai.screen_capture import capture as capture_screen
 from quizai.tray import TrayIcon
+from quizai.telegram_notifier import TelegramNotifier
 
 log = get_logger(__name__)
 
@@ -56,6 +57,7 @@ class _ManualJob:
     """Answer a free-text question typed in the main window."""
 
     text: str
+    source: str = "manual"
 
 
 @dataclass
@@ -144,13 +146,13 @@ class ApiWorker(QObject):
     # ----------------------------------------------------------------- manual
     def _handle_manual(self, job: _ManualJob) -> None:
         assert self._backend is not None
-        self.detection_started.emit("manual")
+        self.detection_started.emit(job.source)
         question = (job.text or "").strip()
         if not question:
             self.api_error.emit("Empty question.", -1)
             return
         ans = self._backend.answer_question(question)
-        self.answer_ready.emit("manual", question, ans.answer, ans.explanation, -1)
+        self.answer_ready.emit(job.source, question, ans.answer, ans.explanation, -1)
 
     # ------------------------------------------------- single-question answer
     def _handle_answer_index(self, job: _AnswerJob) -> None:
@@ -171,6 +173,7 @@ class QuizAIApp(QObject):
 
     _job_requested = Signal(object)
     _backend_changed = Signal(str, str, str)
+    _telegram_message_received = Signal(str)
 
     def __init__(self, qapp: QApplication) -> None:
         super().__init__()
@@ -242,6 +245,12 @@ class QuizAIApp(QObject):
             if self._mobile.start():
                 self._window.set_mobile_url(self._mobile.local_url())
 
+        # ---- Telegram companion.
+        self._telegram_message_received.connect(self._handle_telegram_message_in_qt, Qt.ConnectionType.QueuedConnection)
+        self._telegram = TelegramNotifier(self._config.telegram_token, self._config.telegram_chat_id)
+        if self._config.telegram_enabled:
+            self._telegram.start_polling(self._on_telegram_message)
+
         # ---- API credentials.
         if not self._config.effective_api_key():
             self._prompt_for_api_key()
@@ -258,6 +267,7 @@ class QuizAIApp(QObject):
     # ------------------------------------------------------ shutdown / quit
     def shutdown(self) -> None:
         log.info("Shutting down")
+        self._telegram.stop_polling()
         try:
             self._mobile.stop()
         except Exception:
@@ -350,6 +360,23 @@ class QuizAIApp(QObject):
             Qt.ConnectionType.QueuedConnection,
         )
 
+    def _on_telegram_message(self, text: str) -> None:
+        self._telegram_message_received.emit(text)
+
+    @Slot(str)
+    def _handle_telegram_message_in_qt(self, text: str) -> None:
+        if self._busy:
+            self._telegram.send_text("I'm currently busy processing another request.")
+            return
+        if not self._config.effective_api_key():
+            self._telegram.send_text("No API key set. Open Settings on the desktop app and add one.")
+            return
+
+        self._busy = True
+        self._window.set_busy(True)
+        self._overlay.show_thinking("Thinking (Telegram)…")
+        self._job_requested.emit(_ManualJob(text=text, source="telegram"))
+
     # ------------------------------------------------ worker -> GUI handlers
     @Slot(str)
     def _on_detection_started(self, source: str) -> None:
@@ -408,6 +435,9 @@ class QuizAIApp(QObject):
         else:
             # Manual or legacy single-question path.
             self._overlay.show_single_answer(question, answer, explanation)
+
+        if self._config.telegram_enabled:
+            self._telegram.send_answer(question, answer, explanation)
 
         # Clear busy only for the headline operation. Paginator lazy-loads
         # don't toggle `_busy` (they were never set), so this is correct.
@@ -484,6 +514,17 @@ class QuizAIApp(QObject):
                     self._window.set_mobile_url("")
             else:
                 self._window.set_mobile_url("")
+
+        telegram_changed = (
+            new_cfg.telegram_enabled != old_cfg.telegram_enabled or
+            new_cfg.telegram_token != old_cfg.telegram_token or
+            new_cfg.telegram_chat_id != old_cfg.telegram_chat_id
+        )
+        if telegram_changed:
+            self._telegram.stop_polling()
+            self._telegram = TelegramNotifier(new_cfg.telegram_token, new_cfg.telegram_chat_id)
+            if new_cfg.telegram_enabled:
+                self._telegram.start_polling(self._on_telegram_message)
 
     def _push_backend_to_worker(self) -> None:
         key = self._config.effective_api_key()

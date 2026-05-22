@@ -50,6 +50,7 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - 🔔 **Sound + desktop notifications** — chime on success, error tone on failure (toggleable)
 - 🧩 **Pluggable AI providers** — Google Gemini (free tier) and Anthropic Claude out of the box
 - 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
+- 🤖 **Telegram companion** — two-way chat bot: receive answers instantly on Telegram and ask follow-up questions directly from your phone
 
 ## Requirements
 
@@ -146,6 +147,19 @@ Open **Settings → Mobile companion** to:
 | Mobile port | `7432` | Change if the port is already in use on your machine |
 
 The server only listens on your local network — it is not reachable from the internet.
+
+## Telegram companion
+
+QuizAI features a fully-integrated, two-way Telegram bot. It mirrors every answered question to a private Telegram chat, allowing you to review them on the go. You can also send follow-up questions to the bot, and the AI will answer them right within the chat (while simultaneously showing up on your desktop overlay).
+
+### How to configure
+
+1. Open Telegram and search for **@BotFather**. Send `/newbot`, follow the prompts to create a new bot, and copy the **HTTP API Token** it provides.
+2. Search for your newly created bot in Telegram and send it any message (e.g., "Hello") so it can reply to you.
+3. Search for **@userinfobot** in Telegram. It will immediately reply with your numeric **Id** (`Chat ID`). Copy this number.
+4. On your desktop, open QuizAI, right-click the tray icon, and select **Settings...**.
+5. Under the **Telegram bot** section, check **Enable two-way Telegram companion**.
+6. Paste your **Telegram bot token** and **Telegram chat ID** into the respective fields and click OK.
 
 ## Building a standalone executable
 
