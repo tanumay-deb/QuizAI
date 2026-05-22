@@ -96,7 +96,7 @@ _MOBILE_HTML = """\
 
   function esc(s){
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+      .replace(/>/g,'&gt;').replace(/\\n/g,'<br>');
   }
 
   function addCard(d){
