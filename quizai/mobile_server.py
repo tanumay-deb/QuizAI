@@ -15,6 +15,7 @@ import json
 import queue
 import socket
 import threading
+import uuid
 from typing import Optional
 
 from quizai.logger import get_logger
@@ -22,127 +23,226 @@ from quizai.logger import get_logger
 log = get_logger(__name__)
 
 # ------------------------------------------------------------ mobile HTML page
-_MOBILE_HTML = """\
-<!DOCTYPE html>
+# Raw string (r"""...""") so backslash sequences in the inline JS regexes pass
+# through to the browser verbatim instead of being interpreted by Python.
+_MOBILE_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>QuizAI</title>
 <style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  :root{
-    --bg:#0f1117;--surface:#181b24;--border:#262a36;
-    --text:#e8eaf0;--muted:#6b7280;--accent:#4c84e0;--green:#86efac;
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1117;
+    --surface: #181b24;
+    --border: #262a36;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --accent: #4c84e0;
+    --green: #4ade80;
+    --error: #f87171;
   }
-  body{
-    background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    font-size:15px;line-height:1.5;
-    padding:16px;max-width:640px;margin:0 auto;
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    padding: 16px;
+    max-width: 640px;
+    margin: 0 auto;
   }
-  header{
-    display:flex;align-items:center;justify-content:space-between;
-    padding-bottom:14px;margin-bottom:18px;border-bottom:1px solid var(--border);
-    position:sticky;top:0;background:var(--bg);z-index:10;
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
   }
-  h1{font-size:19px;font-weight:700;color:#fff;letter-spacing:0.3px}
-  #dot{
-    width:9px;height:9px;border-radius:50%;background:#444;
-    transition:background 0.4s;flex-shrink:0;margin-left:12px;
+  h1 { font-size: 19px; font-weight: 700; color: #fff; letter-spacing: 0.3px; }
+  #status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
   }
-  #dot.live{background:#4ade80;box-shadow:0 0 6px #4ade8088}
-  #dot.err{background:#f87171}
-  #empty{
-    padding:56px 0;text-align:center;color:var(--muted);font-size:14px;
+  #dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #444;
+    transition: background 0.3s, box-shadow 0.3s;
   }
-  #empty::before{
-    content:'';display:block;width:32px;height:32px;
-    border:3px solid var(--border);border-top-color:var(--accent);
-    border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;
+  #dot.live { background: var(--green); box-shadow: 0 0 6px rgba(74, 222, 128, 0.5); }
+  #dot.err  { background: var(--error); }
+  #empty {
+    padding: 56px 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
   }
-  @keyframes spin{to{transform:rotate(360deg)}}
-  #list{display:none}
-  .qa{
-    background:var(--surface);border:1px solid var(--border);
-    border-radius:14px;padding:16px 18px;margin-bottom:14px;
-    animation:fadein 0.3s ease;
+  .spinner {
+    display: block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
   }
-  @keyframes fadein{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-  .tag{
-    font-size:10px;font-weight:700;letter-spacing:1px;
-    text-transform:uppercase;color:var(--muted);margin-bottom:6px;
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .qa {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    animation: fadein 0.25s ease;
   }
-  .tag.a-tag{color:var(--green)}
-  .q-text{font-size:13px;color:#9ca3af;font-style:italic;margin-bottom:12px;line-height:1.5}
-  .a-text{font-size:17px;font-weight:700;color:#fff;margin-bottom:10px;line-height:1.45}
-  .e-text{font-size:13px;color:#d1d5db;line-height:1.65}
-  .divider{border:none;border-top:1px solid var(--border);margin:4px 0 10px}
+  @keyframes fadein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; } }
+  .tag {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .tag.a-tag { color: var(--green); }
+  .q-text { font-size: 13px; color: #9ca3af; font-style: italic; margin-bottom: 12px; }
+  .a-text { font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 10px; }
+  .e-text { font-size: 13px; color: #d1d5db; line-height: 1.65; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0 10px; }
 </style>
 </head>
 <body>
-<header><h1>QuizAI</h1><span id="dot"></span></header>
-<div id="empty">Waiting for answers…</div>
+<header>
+  <h1>QuizAI</h1>
+  <div id="status"><span id="statusText">connecting</span><span id="dot"></span></div>
+</header>
+<div id="empty"><span class="spinner"></span>Waiting for answers…</div>
 <div id="list"></div>
 <script>
-(function(){
-  var dot=document.getElementById('dot'),
-      empty=document.getElementById('empty'),
-      list=document.getElementById('list'),
-      shown={};
+(function () {
+  'use strict';
 
-  // Immediately change text so we can confirm JS is running.
-  empty.textContent='JS ready — waiting for answers…';
+  var dot        = document.getElementById('dot');
+  var statusText = document.getElementById('statusText');
+  var empty      = document.getElementById('empty');
+  var list       = document.getElementById('list');
+  var shown      = Object.create(null);
 
-  function esc(s){
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
   }
 
-  function addCard(d){
-    if(!d||shown[d.id])return;
-    shown[d.id]=true;
-    var exp=d.explanation
-      ?'<hr class="divider"><div class="tag">Explanation</div><div class="e-text">'+esc(d.explanation)+'</div>'
-      :'';
-    var html='<div class="qa">'
-      +'<div class="tag">Question</div>'
-      +'<div class="q-text">'+esc(d.question)+'</div>'
-      +'<div class="tag a-tag">Answer</div>'
-      +'<div class="a-text">'+esc(d.answer)+'</div>'
-      +exp+'</div>';
-    list.insertAdjacentHTML('afterbegin',html);
-    empty.style.display='none';
-    list.style.display='';
+  function setStatus(state, text) {
+    dot.className = state || '';
+    statusText.textContent = text;
   }
 
-  // --- SSE: real-time push.
-  (function startSSE(){
-    var es=new EventSource('/events');
-    es.onopen=function(){dot.className='live'};
-    es.onmessage=function(ev){
-      try{addCard(JSON.parse(ev.data))}catch(e){}
-    };
-    es.onerror=function(){dot.className='err';es.close();setTimeout(startSSE,3000)};
-  })();
+  function renderCard(entry) {
+    if (!entry || entry.id == null) return;
+    var key = String(entry.id);
+    if (shown[key]) return;
+    shown[key] = true;
 
-  // --- XHR polling: syncs full list every 4 s (fallback + catch-up).
-  // Uses XMLHttpRequest instead of fetch for maximum browser compatibility.
-  (function poll(){
-    var xhr=new XMLHttpRequest();
-    xhr.open('GET','/answers',true);
-    xhr.onload=function(){
-      if(xhr.status===200){
-        try{
-          var arr=JSON.parse(xhr.responseText);
-          if(Array.isArray(arr)) arr.forEach(addCard);
-        }catch(e){}
+    var card = document.createElement('div');
+    card.className = 'qa';
+    var explanationHtml = '';
+    if (entry.explanation) {
+      explanationHtml =
+        '<hr class="divider">' +
+        '<div class="tag">Explanation</div>' +
+        '<div class="e-text">' + escapeHtml(entry.explanation) + '</div>';
+    }
+    card.innerHTML =
+      '<div class="tag">Question</div>' +
+      '<div class="q-text">' + escapeHtml(entry.question) + '</div>' +
+      '<div class="tag a-tag">Answer</div>' +
+      '<div class="a-text">' + escapeHtml(entry.answer) + '</div>' +
+      explanationHtml;
+
+    // Newest on top.
+    list.insertBefore(card, list.firstChild);
+    empty.style.display = 'none';
+  }
+
+  // ---- Catch-up via /answers (works even if SSE never connects).
+  function fetchAll() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/answers', true);
+    xhr.onload = function () {
+      if (xhr.status !== 200) {
+        console.error('GET /answers ->', xhr.status);
+        return;
+      }
+      try {
+        var arr = JSON.parse(xhr.responseText);
+        if (!Array.isArray(arr)) return;
+        // Server returns oldest-first; render in that order so insertBefore puts newest on top.
+        for (var i = 0; i < arr.length; i++) renderCard(arr[i]);
+      } catch (e) {
+        console.error('Failed to parse /answers response', e);
       }
     };
+    xhr.onerror = function () { console.error('/answers request failed'); };
     xhr.send();
-    setTimeout(poll,4000);
-  })();
-}());
+  }
+
+  // ---- SSE for live push.
+  var sseTimer = null;
+  function startSSE() {
+    if (sseTimer) { clearTimeout(sseTimer); sseTimer = null; }
+    setStatus('', 'connecting');
+    var es;
+    try {
+      es = new EventSource('/events');
+    } catch (e) {
+      setStatus('err', 'no SSE');
+      console.error('EventSource ctor threw', e);
+      return;
+    }
+    es.onopen = function () { setStatus('live', 'live'); };
+    es.onmessage = function (ev) {
+      try {
+        renderCard(JSON.parse(ev.data));
+      } catch (e) {
+        console.error('Bad SSE payload', ev.data, e);
+      }
+    };
+    es.onerror = function () {
+      setStatus('err', 'reconnecting');
+      try { es.close(); } catch (_) {}
+      sseTimer = setTimeout(startSSE, 3000);
+    };
+  }
+
+  // ---- Periodic safety-net poll. SSE handles the live case; this catches
+  //      anything missed if the SSE connection silently drops without erroring.
+  function poll() {
+    fetchAll();
+    setTimeout(poll, 6000);
+  }
+
+  fetchAll();
+  startSSE();
+  setTimeout(poll, 6000);
+})();
 </script>
 </body>
 </html>
@@ -243,7 +343,10 @@ class MobileServer:
         self._clients: list[queue.Queue[str]] = []
         self._lock = threading.Lock()
         self._qa_list: list[dict] = []   # full history; each item is a dict
-        self._counter: int = 0           # monotonic id for deduplication
+        self._counter: int = 0           # monotonic id within this session
+        # Prefix every id with a per-session token so a stale browser tab
+        # from a previous run can't dedupe ids from a fresh server.
+        self._session: str = uuid.uuid4().hex[:8]
         self._server: Optional[_ThreadedServer] = None
 
     # ----------------------------------------------------------------- lifecycle
@@ -280,7 +383,7 @@ class MobileServer:
         with self._lock:
             self._counter += 1
             entry = {
-                "id": self._counter,
+                "id": f"{self._session}-{self._counter}",
                 "question": question,
                 "answer": answer,
                 "explanation": explanation,
@@ -299,7 +402,7 @@ class MobileServer:
             for q in dead:
                 self._clients.remove(q)
 
-        log.info("Mobile: pushed answer id=%d to %d SSE client(s)", self._counter, len(self._clients))
+        log.info("Mobile: pushed answer id=%s to %d SSE client(s)", entry["id"], len(self._clients))
 
     # ----------------------------------------------------------------- client management
     def _register_client(self, q: queue.Queue[str]) -> list[str]:

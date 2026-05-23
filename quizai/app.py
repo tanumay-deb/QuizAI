@@ -39,6 +39,7 @@ from quizai.mobile_server import MobileServer
 from quizai.scheduler import AutoCaptureScheduler
 from quizai.screen_capture import capture as capture_screen
 from quizai.tray import TrayIcon
+from quizai.telegram_notifier import TelegramNotifier
 
 log = get_logger(__name__)
 
@@ -56,6 +57,7 @@ class _ManualJob:
     """Answer a free-text question typed in the main window."""
 
     text: str
+    source: str = "manual"
 
 
 @dataclass
@@ -144,13 +146,13 @@ class ApiWorker(QObject):
     # ----------------------------------------------------------------- manual
     def _handle_manual(self, job: _ManualJob) -> None:
         assert self._backend is not None
-        self.detection_started.emit("manual")
+        self.detection_started.emit(job.source)
         question = (job.text or "").strip()
         if not question:
             self.api_error.emit("Empty question.", -1)
             return
         ans = self._backend.answer_question(question)
-        self.answer_ready.emit("manual", question, ans.answer, ans.explanation, -1)
+        self.answer_ready.emit(job.source, question, ans.answer, ans.explanation, -1)
 
     # ------------------------------------------------- single-question answer
     def _handle_answer_index(self, job: _AnswerJob) -> None:
@@ -165,12 +167,32 @@ def _job_index(job: object) -> int:
     return -1
 
 
+_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "telegram_token"}
+
+
+def _diff_config(old: Config, new: Config) -> str:
+    """Return a compact summary of which fields differ between two configs."""
+    old_d = old.to_dict()
+    new_d = new.to_dict()
+    changes: list[str] = []
+    for k in sorted(set(old_d) | set(new_d)):
+        ov, nv = old_d.get(k), new_d.get(k)
+        if ov == nv:
+            continue
+        if k in _SECRET_FIELDS:
+            changes.append(f"{k}=(redacted, len {len(ov or '')}→{len(nv or '')})")
+        else:
+            changes.append(f"{k}={ov!r}→{nv!r}")
+    return ", ".join(changes) if changes else "(no changes)"
+
+
 # ================================================================ application
 class QuizAIApp(QObject):
     """Single instance that owns the lifecycle of all windows/threads."""
 
     _job_requested = Signal(object)
     _backend_changed = Signal(str, str, str)
+    _telegram_message_received = Signal(str)
 
     def __init__(self, qapp: QApplication) -> None:
         super().__init__()
@@ -193,9 +215,6 @@ class QuizAIApp(QObject):
             width=self._config.overlay_width,
             max_height=self._config.overlay_max_height,
         )
-        # When the user pages to an unanswered slot, the overlay asks us to
-        # answer it. We dispatch a worker job.
-        self._overlay.question_answer_requested.connect(self._on_paginator_answer_requested)
 
         # ---- Tray.
         self._tray = TrayIcon(self)
@@ -242,6 +261,12 @@ class QuizAIApp(QObject):
             if self._mobile.start():
                 self._window.set_mobile_url(self._mobile.local_url())
 
+        # ---- Telegram companion.
+        self._telegram_message_received.connect(self._handle_telegram_message_in_qt, Qt.ConnectionType.QueuedConnection)
+        self._telegram = TelegramNotifier(self._config.telegram_token, self._config.telegram_chat_id)
+        if self._config.telegram_enabled:
+            self._telegram.start_polling(self._on_telegram_message)
+
         # ---- API credentials.
         if not self._config.effective_api_key():
             self._prompt_for_api_key()
@@ -258,6 +283,7 @@ class QuizAIApp(QObject):
     # ------------------------------------------------------ shutdown / quit
     def shutdown(self) -> None:
         log.info("Shutting down")
+        self._telegram.stop_polling()
         try:
             self._mobile.stop()
         except Exception:
@@ -328,20 +354,6 @@ class QuizAIApp(QObject):
         self._overlay.show_thinking("Thinking…")
         self._job_requested.emit(_ManualJob(text=text))
 
-    def _on_paginator_answer_requested(self, index: int) -> None:
-        """User paginated to an unanswered slot — fire a fresh job for that one.
-        Does not set `_busy` since this is a secondary, on-demand operation."""
-        # Pull the question text out of the overlay's state.
-        total = self._overlay.total_entries()
-        if index < 0 or index >= total:
-            return
-        # The overlay owns the QAEntry list. We access it via a small helper
-        # rather than reaching into a private attr.
-        entry_question = _question_at(self._overlay, index)
-        if not entry_question:
-            return
-        self._job_requested.emit(_AnswerJob(index=index, question=entry_question))
-
     def _auto_capture_trigger(self) -> None:
         """Called from the scheduler's daemon thread; hops to the Qt thread."""
         QMetaObject.invokeMethod(
@@ -349,6 +361,23 @@ class QuizAIApp(QObject):
             "_on_capture_requested",
             Qt.ConnectionType.QueuedConnection,
         )
+
+    def _on_telegram_message(self, text: str) -> None:
+        self._telegram_message_received.emit(text)
+
+    @Slot(str)
+    def _handle_telegram_message_in_qt(self, text: str) -> None:
+        if self._busy:
+            self._telegram.send_text("I'm currently busy processing another request.")
+            return
+        if not self._config.effective_api_key():
+            self._telegram.send_text("No API key set. Open Settings on the desktop app and add one.")
+            return
+
+        self._busy = True
+        self._window.set_busy(True)
+        self._overlay.show_thinking("Thinking (Telegram)…")
+        self._job_requested.emit(_ManualJob(text=text, source="telegram"))
 
     # ------------------------------------------------ worker -> GUI handlers
     @Slot(str)
@@ -360,9 +389,8 @@ class QuizAIApp(QObject):
 
     @Slot(list)
     def _on_questions_extracted(self, questions: list) -> None:
-        """Vision found one or more questions. Populate the overlay paginator
-        with placeholders; the first answer will arrive shortly via
-        _on_answer_ready."""
+        """Vision found one or more questions. Pass them to the overlay and queue
+        jobs for all subsequent questions to be answered sequentially."""
         qs = [str(q) for q in questions if str(q).strip()]
         if not qs:
             return
@@ -370,8 +398,12 @@ class QuizAIApp(QObject):
         if len(qs) > 1:
             self._notifier.notify(
                 __app_name__,
-                f"Found {len(qs)} questions. Use ‹ › to navigate.",
+                f"Found {len(qs)} questions. Processing answers...",
             )
+        # The ApiWorker answers the first question synchronously before emitting this signal.
+        # We need to queue the rest here so they get processed sequentially.
+        for i in range(1, len(qs)):
+            self._job_requested.emit(_AnswerJob(index=i, question=qs[i]))
 
     @Slot()
     def _on_no_question_found(self) -> None:
@@ -408,6 +440,9 @@ class QuizAIApp(QObject):
         else:
             # Manual or legacy single-question path.
             self._overlay.show_single_answer(question, answer, explanation)
+
+        if self._config.telegram_enabled:
+            self._telegram.send_answer(question, answer, explanation)
 
         # Clear busy only for the headline operation. Paginator lazy-loads
         # don't toggle `_busy` (they were never set), so this is correct.
@@ -452,6 +487,7 @@ class QuizAIApp(QObject):
         old_cfg = self._config
         self._config = new_cfg
         save_config(new_cfg)
+        log.info("Settings saved; applying changes: %s", _diff_config(old_cfg, new_cfg))
 
         # Overlay appearance.
         self._overlay.set_opacity(new_cfg.overlay_opacity)
@@ -467,6 +503,11 @@ class QuizAIApp(QObject):
         key_changed = new_cfg.effective_api_key() != old_cfg.effective_api_key()
         model_changed = new_cfg.effective_model() != old_cfg.effective_model()
         if (provider_changed or key_changed or model_changed) and new_cfg.effective_api_key():
+            log.info(
+                "Re-initialising backend: provider=%s model=%s",
+                new_cfg.provider,
+                new_cfg.effective_model(),
+            )
             self._push_backend_to_worker()
 
         self._scheduler.set_interval(new_cfg.auto_capture_interval)
@@ -475,6 +516,11 @@ class QuizAIApp(QObject):
         mobile_port_changed = new_cfg.mobile_server_port != old_cfg.mobile_server_port
         mobile_enabled_changed = new_cfg.mobile_server_enabled != old_cfg.mobile_server_enabled
         if mobile_enabled_changed or mobile_port_changed:
+            log.info(
+                "Restarting mobile server: enabled=%s port=%d",
+                new_cfg.mobile_server_enabled,
+                new_cfg.mobile_server_port,
+            )
             self._mobile.stop()
             self._mobile = MobileServer(new_cfg.mobile_server_port)
             if new_cfg.mobile_server_enabled:
@@ -484,6 +530,23 @@ class QuizAIApp(QObject):
                     self._window.set_mobile_url("")
             else:
                 self._window.set_mobile_url("")
+
+        telegram_changed = (
+            new_cfg.telegram_enabled != old_cfg.telegram_enabled or
+            new_cfg.telegram_token != old_cfg.telegram_token or
+            new_cfg.telegram_chat_id != old_cfg.telegram_chat_id
+        )
+        if telegram_changed:
+            log.info(
+                "Restarting Telegram notifier: enabled=%s token_set=%s chat_id_set=%s",
+                new_cfg.telegram_enabled,
+                bool(new_cfg.telegram_token),
+                bool(new_cfg.telegram_chat_id),
+            )
+            self._telegram.stop_polling()
+            self._telegram = TelegramNotifier(new_cfg.telegram_token, new_cfg.telegram_chat_id)
+            if new_cfg.telegram_enabled:
+                self._telegram.start_polling(self._on_telegram_message)
 
     def _push_backend_to_worker(self) -> None:
         key = self._config.effective_api_key()
@@ -508,6 +571,10 @@ class QuizAIApp(QObject):
             bindings[self._config.hotkey_dismiss_overlay] = self._invoke_in_qt(
                 self._overlay.dismiss
             )
+        if getattr(self._config, "hotkey_quit", ""):
+            bindings[self._config.hotkey_quit] = self._invoke_in_qt(self.shutdown)
+        if getattr(self._config, "hotkey_quit_alt", ""):
+            bindings[self._config.hotkey_quit_alt] = self._invoke_in_qt(self.shutdown)
         self._hotkeys.set_bindings(bindings)
 
     def _invoke_in_qt(self, fn) -> callable:
@@ -548,17 +615,6 @@ class QuizAIApp(QObject):
             return
         self._config.set_api_key_for_provider(provider, text)
         save_config(self._config)
-
-
-# ---------------------------------------------------------------- small helper
-def _question_at(overlay: OverlayWindow, index: int) -> str:
-    """Tiny accessor so the orchestrator doesn't poke into overlay internals."""
-    entries = getattr(overlay, "_entries", None)
-    if not entries:
-        return ""
-    if 0 <= index < len(entries):
-        return entries[index].question
-    return ""
 
 
 # =========================================================== entry point

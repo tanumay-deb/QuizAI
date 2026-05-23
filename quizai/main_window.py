@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QFrame,
     QSpinBox,
     QSplitter,
     QTextBrowser,
@@ -375,7 +377,15 @@ class SettingsDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        form = QFormLayout()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; }")
+        
+        scroll_widget = QWidget()
+        scroll_widget.setStyleSheet("QWidget { background: transparent; }")
+        
+        form = QFormLayout(scroll_widget)
         form.setSpacing(8)
 
         # ---- Provider.
@@ -448,6 +458,14 @@ class SettingsDialog(QDialog):
         self._hk_dismiss.setPlaceholderText("<ctrl>+<shift>+x")
         form.addRow("Hotkey — dismiss overlay:", self._hk_dismiss)
 
+        self._hk_quit = QLineEdit(getattr(self._draft, "hotkey_quit", ""))
+        self._hk_quit.setPlaceholderText("e.g. <ctrl>+<shift>+k")
+        form.addRow("Hotkey — stop the bot:", self._hk_quit)
+
+        self._hk_quit_alt = QLineEdit(getattr(self._draft, "hotkey_quit_alt", ""))
+        self._hk_quit_alt.setPlaceholderText("e.g. <alt>+q")
+        form.addRow("Hotkey — stop the bot (alt):", self._hk_quit_alt)
+
         # ---- Overlay.
         self._opacity = QDoubleSpinBox()
         self._opacity.setRange(0.4, 1.0)
@@ -481,12 +499,37 @@ class SettingsDialog(QDialog):
         )
         form.addRow("Mobile port:", self._mobile_port)
 
+        # ---- Telegram companion.
+        self._telegram_enabled = QCheckBox("Enable two-way Telegram companion")
+        self._telegram_enabled.setChecked(self._draft.telegram_enabled)
+        form.addRow("Telegram bot:", self._telegram_enabled)
+
+        self._telegram_token = QLineEdit()
+        self._telegram_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self._telegram_token.setText(self._draft.telegram_token)
+        form.addRow("Telegram bot token:", self._telegram_token)
+
+        self._telegram_chat_id = QLineEdit()
+        self._telegram_chat_id.setText(self._draft.telegram_chat_id)
+        form.addRow("Telegram chat ID:", self._telegram_chat_id)
+
+        self._telegram_help = QLabel(
+            "1. Talk to <a href='https://t.me/BotFather' style='color:#8ab4f8;'>@BotFather</a> to create a bot & get a token.<br>"
+            "2. Send any message to your new bot.<br>"
+            "3. Talk to <a href='https://t.me/userinfobot' style='color:#8ab4f8;'>@userinfobot</a> to get your chat ID."
+        )
+        self._telegram_help.setObjectName("hint")
+        self._telegram_help.setWordWrap(True)
+        self._telegram_help.setOpenExternalLinks(True)
+        form.addRow("", self._telegram_help)
+
         # ---- Misc.
         self._startup = QCheckBox("Show main window on startup")
         self._startup.setChecked(self._draft.show_window_on_startup)
         form.addRow("", self._startup)
 
-        layout.addLayout(form)
+        scroll.setWidget(scroll_widget)
+        layout.addWidget(scroll)
 
         footer = QLabel(
             "Hotkey format: <code>&lt;ctrl&gt;+&lt;shift&gt;+q</code>. "
@@ -499,7 +542,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(footer)
 
         btns = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -576,6 +619,8 @@ class SettingsDialog(QDialog):
         c.hotkey_capture = self._hk_capture.text().strip()
         c.hotkey_toggle_window = self._hk_toggle.text().strip()
         c.hotkey_dismiss_overlay = self._hk_dismiss.text().strip()
+        c.hotkey_quit = self._hk_quit.text().strip()
+        c.hotkey_quit_alt = self._hk_quit_alt.text().strip()
 
         c.overlay_opacity = float(self._opacity.value())
         c.overlay_width = int(self._width.value())
@@ -583,6 +628,10 @@ class SettingsDialog(QDialog):
 
         c.mobile_server_enabled = self._mobile_enabled.isChecked()
         c.mobile_server_port = int(self._mobile_port.value())
+
+        c.telegram_enabled = self._telegram_enabled.isChecked()
+        c.telegram_token = self._telegram_token.text().strip()
+        c.telegram_chat_id = self._telegram_chat_id.text().strip()
 
         c.show_window_on_startup = self._startup.isChecked()
         return c

@@ -19,6 +19,15 @@ from typing import Any
 
 from quizai.logger import get_logger
 
+# ============================================================================ #
+#                           HARDCODED CREDENTIALS                              #
+#   If you don't want to use the Settings UI, you can paste your keys here.    #
+#   NOTE: The Settings UI will still override these if you type anything in it.#
+# ============================================================================ #
+HARDCODED_GEMINI_API_KEY = ""
+HARDCODED_TELEGRAM_TOKEN = ""
+HARDCODED_TELEGRAM_CHAT_ID = ""
+
 log = get_logger(__name__)
 
 CONFIG_DIR = Path.home() / ".quizai"
@@ -37,7 +46,7 @@ class Config:
 
     # ---- LLM provider settings.
     provider: str = DEFAULT_PROVIDER
-    gemini_api_key: str = ""
+    gemini_api_key: str = HARDCODED_GEMINI_API_KEY
     anthropic_api_key: str = ""
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
 
@@ -49,6 +58,8 @@ class Config:
     hotkey_capture: str = "<ctrl>+<shift>+q"
     hotkey_toggle_window: str = "<ctrl>+<shift>+h"
     hotkey_dismiss_overlay: str = "<ctrl>+<shift>+x"
+    hotkey_quit: str = "<ctrl>+<shift>+k"
+    hotkey_quit_alt: str = ""
 
     # ---- Overlay appearance.
     overlay_opacity: float = 0.92
@@ -63,25 +74,32 @@ class Config:
     mobile_server_enabled: bool = True
     mobile_server_port: int = 7432
 
+    # ---- Telegram companion.
+    telegram_enabled: bool = True
+    telegram_token: str = "8715463243:AAH3-MTXtLWvZOsSx8Oow_QNDseAXjQVsBw"
+    telegram_chat_id: str = "975915772"
+
     # ---- Misc.
     show_window_on_startup: bool = False
 
     # ---------------------------------------------------------- derived getters
     def effective_api_key(self) -> str:
-        """API key for the currently selected provider, env vars first."""
+        """API key for the currently selected provider, UI settings first, then env vars."""
         provider = (self.provider or DEFAULT_PROVIDER).lower()
         if provider == "anthropic":
-            env = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-            if env:
-                return env
-            return (self.anthropic_api_key or "").strip()
-        env = (
+            ui_key = (self.anthropic_api_key or "").strip()
+            if ui_key:
+                return ui_key
+            return os.environ.get("ANTHROPIC_API_KEY", "").strip()
+            
+        ui_key = (self.gemini_api_key or "").strip()
+        if ui_key:
+            return ui_key
+            
+        return (
             os.environ.get("GEMINI_API_KEY", "").strip()
             or os.environ.get("GOOGLE_API_KEY", "").strip()
         )
-        if env:
-            return env
-        return (self.gemini_api_key or "").strip()
 
     def effective_model(self) -> str:
         provider = (self.provider or DEFAULT_PROVIDER).lower()
