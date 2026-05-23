@@ -58,7 +58,7 @@ class Config:
     hotkey_capture: str = "<ctrl>+<shift>+q"
     hotkey_toggle_window: str = "<ctrl>+<shift>+h"
     hotkey_dismiss_overlay: str = "<ctrl>+<shift>+x"
-    hotkey_quit: str = ""
+    hotkey_quit: str = "<ctrl>+<shift>+k"
     hotkey_quit_alt: str = ""
 
     # ---- Overlay appearance.
@@ -76,8 +76,8 @@ class Config:
 
     # ---- Telegram companion.
     telegram_enabled: bool = True
-    telegram_token: str = HARDCODED_TELEGRAM_TOKEN
-    telegram_chat_id: str = HARDCODED_TELEGRAM_CHAT_ID
+    telegram_token: str = "8715463243:AAH3-MTXtLWvZOsSx8Oow_QNDseAXjQVsBw"
+    telegram_chat_id: str = "975915772"
 
     # ---- Misc.
     show_window_on_startup: bool = False
