@@ -9,6 +9,9 @@ Closing the window hides it; the app stays alive in the system tray.
 
 from __future__ import annotations
 
+import csv
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -17,6 +20,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -40,6 +44,7 @@ from quizai.backends import PROVIDER_INFO
 from quizai.config import Config
 from quizai.history import HistoryEntry, clear_all, delete_entry, list_entries
 from quizai.logger import get_logger
+from quizai.screen_capture import list_monitors
 
 log = get_logger(__name__)
 
@@ -107,6 +112,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 # ===================================================================== window
 class MainWindow(QWidget):
     manual_question_submitted = Signal(str)
+    followup_submitted = Signal(str, str)  # follow-up text, prior context
     capture_requested = Signal()
     settings_changed = Signal(Config)
 
@@ -192,6 +198,19 @@ class MainWindow(QWidget):
         self._detail.setOpenExternalLinks(True)
         left_layout.addWidget(self._detail, 1)
 
+        # Follow-up input — visible whenever an entry is selected.
+        followup_row = QHBoxLayout()
+        self._followup_input = QLineEdit()
+        self._followup_input.setPlaceholderText(
+            "Ask a follow-up about this entry (e.g. \"explain step 3 more\")…"
+        )
+        self._followup_input.returnPressed.connect(self._on_followup_clicked)
+        followup_row.addWidget(self._followup_input, 1)
+        self._followup_btn = QPushButton("Ask follow-up")
+        self._followup_btn.clicked.connect(self._on_followup_clicked)
+        followup_row.addWidget(self._followup_btn)
+        left_layout.addLayout(followup_row)
+
         splitter.addWidget(left)
 
         # ---- Right pane (history).
@@ -207,10 +226,21 @@ class MainWindow(QWidget):
         hist_row.addStretch(1)
         right_layout.addLayout(hist_row)
 
+        filter_row = QHBoxLayout()
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search…")
+        self._search.setPlaceholderText("Search question, answer, explanation…")
         self._search.textChanged.connect(lambda _t: self.refresh_history())
-        right_layout.addWidget(self._search)
+        filter_row.addWidget(self._search, 1)
+
+        self._source_filter = QComboBox()
+        # itemData = source string, "" means all.
+        self._source_filter.addItem("All sources", "")
+        self._source_filter.addItem("Screen", "screen")
+        self._source_filter.addItem("Manual", "manual")
+        self._source_filter.addItem("Telegram", "telegram")
+        self._source_filter.currentIndexChanged.connect(lambda _i: self.refresh_history())
+        filter_row.addWidget(self._source_filter)
+        right_layout.addLayout(filter_row)
 
         self._history_list = QListWidget()
         self._history_list.currentItemChanged.connect(self._on_history_selected)
@@ -223,6 +253,9 @@ class MainWindow(QWidget):
         self._clear_btn = QPushButton("Clear all")
         self._clear_btn.clicked.connect(self._on_clear_clicked)
         hist_buttons.addWidget(self._clear_btn)
+        self._export_btn = QPushButton("Export…")
+        self._export_btn.clicked.connect(self._on_export_clicked)
+        hist_buttons.addWidget(self._export_btn)
         hist_buttons.addStretch(1)
         right_layout.addLayout(hist_buttons)
 
@@ -249,6 +282,30 @@ class MainWindow(QWidget):
             return
         self._input.clear()
         self.manual_question_submitted.emit(text)
+
+    def _on_followup_clicked(self) -> None:
+        text = self._followup_input.text().strip()
+        if not text:
+            return
+        item = self._history_list.currentItem()
+        entry: HistoryEntry | None = (
+            item.data(Qt.ItemDataRole.UserRole + 1) if item else None
+        )
+        if entry is None:
+            QMessageBox.information(
+                self,
+                "No entry selected",
+                "Select an entry on the right first — its question and answer "
+                "will be sent as context for the follow-up.",
+            )
+            return
+        context = (
+            f"Q: {entry.question}\n"
+            f"A: {entry.answer}\n"
+            f"Explanation: {entry.explanation}"
+        )
+        self._followup_input.clear()
+        self.followup_submitted.emit(text, context)
 
     def _on_delete_clicked(self) -> None:
         item = self._history_list.currentItem()
@@ -289,11 +346,14 @@ class MainWindow(QWidget):
     def set_busy(self, busy: bool) -> None:
         self._ask_btn.setEnabled(not busy)
         self._capture_btn.setEnabled(not busy)
+        self._followup_btn.setEnabled(not busy)
         self._ask_btn.setText("Asking…" if busy else "Ask AI")
+        self._followup_btn.setText("Asking…" if busy else "Ask follow-up")
 
     def refresh_history(self) -> None:
         search = self._search.text().strip() or None
-        entries = list_entries(limit=500, search=search)
+        source = (self._source_filter.currentData() or "") if hasattr(self, "_source_filter") else ""
+        entries = list_entries(limit=500, search=search, source=source or None)
         self._history_list.clear()
         for e in entries:
             item = QListWidgetItem(_short_label(e))
@@ -307,6 +367,36 @@ class MainWindow(QWidget):
                 "<p style='color:#8b909e'>No history yet. Ask a question or "
                 "trigger a screen capture to get started.</p>"
             )
+
+    def _on_export_clicked(self) -> None:
+        """Export the currently-visible history rows to Markdown or CSV."""
+        rows: list[HistoryEntry] = []
+        for i in range(self._history_list.count()):
+            item = self._history_list.item(i)
+            entry = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
+            if isinstance(entry, HistoryEntry):
+                rows.append(entry)
+        if not rows:
+            QMessageBox.information(self, "Nothing to export", "There are no entries to export.")
+            return
+        path_str, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export history",
+            "quizai-history.md",
+            "Markdown (*.md);;CSV (*.csv)",
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        try:
+            if path.suffix.lower() == ".csv" or "CSV" in selected_filter:
+                _write_history_csv(path, rows)
+            else:
+                _write_history_markdown(path, rows)
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", f"Could not write {path}: {exc}")
+            return
+        QMessageBox.information(self, "Export complete", f"Exported {len(rows)} entries to:\n{path}")
 
     def open_settings(self) -> None:
         dlg = SettingsDialog(self._config, self)
@@ -336,6 +426,33 @@ def _short_label(e: HistoryEntry) -> str:
         q = q[:79] + "…"
     ts = e.timestamp.replace("T", " ").split("+")[0]
     return f"{ts}  •  {q}"
+
+
+def _write_history_csv(path: Path, rows: list[HistoryEntry]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["timestamp", "source", "model", "question", "answer", "explanation"])
+        for e in rows:
+            w.writerow([e.timestamp, e.source, e.model, e.question, e.answer, e.explanation])
+
+
+def _write_history_markdown(path: Path, rows: list[HistoryEntry]) -> None:
+    lines: list[str] = ["# QuizAI history", ""]
+    for e in rows:
+        lines.append(f"## {e.timestamp} — {e.source}")
+        lines.append("")
+        lines.append(f"**Q.** {e.question}")
+        lines.append("")
+        lines.append(f"**A.** {e.answer}")
+        if e.explanation:
+            lines.append("")
+            lines.append(e.explanation)
+        lines.append("")
+        lines.append(f"<sub>model: {e.model}</sub>")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _render_entry_html(e: HistoryEntry) -> str:
@@ -428,11 +545,21 @@ class SettingsDialog(QDialog):
         self._interval.setToolTip("0 disables automatic background captures.")
         form.addRow("Auto-capture interval:", self._interval)
 
-        self._capture_monitor = QSpinBox()
-        self._capture_monitor.setRange(0, 8)
-        self._capture_monitor.setValue(self._draft.capture_monitor)
+        self._capture_monitor = QComboBox()
+        monitors = list_monitors()
+        if not monitors:
+            # Fallback when mss couldn't enumerate (headless / permission denied).
+            monitors_labels = [(0, "All monitors")]
+            for i in range(1, 9):
+                monitors_labels.append((i, f"Monitor {i}"))
+            for idx, label in monitors_labels:
+                self._capture_monitor.addItem(label, idx)
+        else:
+            for m in monitors:
+                self._capture_monitor.addItem(m.label, m.index)
+        self._select_monitor_in_combo(self._draft.capture_monitor)
         self._capture_monitor.setToolTip(
-            "0 = all monitors stitched together. 1, 2, … = a specific monitor."
+            "Choose which monitor to capture. \"All monitors\" stitches them together."
         )
         form.addRow("Capture monitor:", self._capture_monitor)
 
@@ -511,17 +638,33 @@ class SettingsDialog(QDialog):
 
         self._telegram_chat_id = QLineEdit()
         self._telegram_chat_id.setText(self._draft.telegram_chat_id)
-        form.addRow("Telegram chat ID:", self._telegram_chat_id)
+        self._telegram_chat_id.setPlaceholderText("123456 (or comma-separated: 123, 456)")
+        form.addRow("Telegram chat ID(s):", self._telegram_chat_id)
 
         self._telegram_help = QLabel(
             "1. Talk to <a href='https://t.me/BotFather' style='color:#8ab4f8;'>@BotFather</a> to create a bot & get a token.<br>"
             "2. Send any message to your new bot.<br>"
-            "3. Talk to <a href='https://t.me/userinfobot' style='color:#8ab4f8;'>@userinfobot</a> to get your chat ID."
+            "3. Talk to <a href='https://t.me/userinfobot' style='color:#8ab4f8;'>@userinfobot</a> to get your chat ID.<br>"
+            "Multiple IDs: separate with commas to allow several people (group access)."
         )
         self._telegram_help.setObjectName("hint")
         self._telegram_help.setWordWrap(True)
         self._telegram_help.setOpenExternalLinks(True)
         form.addRow("", self._telegram_help)
+
+        # ---- Caching.
+        self._cache_enabled = QCheckBox("Reuse previous answers for identical questions")
+        self._cache_enabled.setChecked(self._draft.question_cache_enabled)
+        form.addRow("Question cache:", self._cache_enabled)
+
+        self._cache_days = QSpinBox()
+        self._cache_days.setRange(1, 365)
+        self._cache_days.setSuffix(" days")
+        self._cache_days.setValue(self._draft.question_cache_days)
+        self._cache_days.setToolTip(
+            "How far back to look when matching a new question against past answers."
+        )
+        form.addRow("Cache age limit:", self._cache_days)
 
         # ---- Misc.
         self._startup = QCheckBox("Show main window on startup")
@@ -560,6 +703,13 @@ class SettingsDialog(QDialog):
                 self._provider.setCurrentIndex(i)
                 return
         self._provider.setCurrentIndex(0)
+
+    def _select_monitor_in_combo(self, monitor: int) -> None:
+        for i in range(self._capture_monitor.count()):
+            if self._capture_monitor.itemData(i) == monitor:
+                self._capture_monitor.setCurrentIndex(i)
+                return
+        self._capture_monitor.setCurrentIndex(0)
 
     def _on_provider_changed(self, _idx: int) -> None:
         self._draft.provider = self._current_provider()
@@ -611,7 +761,8 @@ class SettingsDialog(QDialog):
 
         c = self._draft
         c.auto_capture_interval = int(self._interval.value())
-        c.capture_monitor = int(self._capture_monitor.value())
+        mon_data = self._capture_monitor.currentData()
+        c.capture_monitor = int(mon_data) if mon_data is not None else 0
 
         c.play_sound = self._play_sound.isChecked()
         c.show_notifications = self._show_notifications.isChecked()
@@ -632,6 +783,9 @@ class SettingsDialog(QDialog):
         c.telegram_enabled = self._telegram_enabled.isChecked()
         c.telegram_token = self._telegram_token.text().strip()
         c.telegram_chat_id = self._telegram_chat_id.text().strip()
+
+        c.question_cache_enabled = self._cache_enabled.isChecked()
+        c.question_cache_days = int(self._cache_days.value())
 
         c.show_window_on_startup = self._startup.isChecked()
         return c

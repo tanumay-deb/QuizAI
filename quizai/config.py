@@ -75,9 +75,13 @@ class Config:
     mobile_server_port: int = 7432
 
     # ---- Telegram companion.
-    telegram_enabled: bool = True
-    telegram_token: str = "8715463243:AAH3-MTXtLWvZOsSx8Oow_QNDseAXjQVsBw"
-    telegram_chat_id: str = "975915772"
+    telegram_enabled: bool = False
+    telegram_token: str = HARDCODED_TELEGRAM_TOKEN
+    telegram_chat_id: str = HARDCODED_TELEGRAM_CHAT_ID
+
+    # ---- Caching.
+    question_cache_enabled: bool = True
+    question_cache_days: int = 7
 
     # ---- Misc.
     show_window_on_startup: bool = False

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-28
+
+### Added
+- **Follow-up / conversational mode** — select any history entry and ask a follow-up; the previous Q&A is forwarded to the model as context. New `Backend.answer_question(question, context=…)` signature; both Gemini and Anthropic backends updated.
+- **Multi-monitor picker UI** — Settings now lists every detected monitor (with resolution & position) in a combo box instead of a numeric spinbox.
+- **Question cache** — identical (normalised) questions answered in the last 7 days are served instantly from `history.db` without an API call. Toggle and TTL configurable in Settings → Question cache.
+- **Detection cache** — back-to-back captures of the same screen reuse the last vision result for up to 1 hour (in-memory LRU(8) keyed by PNG SHA-256), saving the vision call entirely.
+- **Telegram group access policy** — `Telegram chat ID(s)` now accepts a comma/whitespace-separated allowlist. Outgoing answers broadcast to every id; incoming messages still only honoured from allowlisted chats.
+- **History pane upgrades** — filter by source (screen / manual / Telegram), search across explanation text as well as question & answer, and **Export…** the visible entries to Markdown or CSV.
+
+### Changed
+- `list_entries()` accepts a `source` filter and now searches the explanation column too.
+- Telegram notifier broadcasts to multiple chat ids; each send logs success or failure per recipient.
+
+### Backend / internal
+- `quizai.history` gains `question_hash()` and `find_cached_answer()`.
+- `quizai.screen_capture` gains `list_monitors()` returning `MonitorInfo` records.
+- `quizai.backends.base` gains `build_followup_prompt()` for composing the user turn when context is supplied.
+- New `_FollowUpJob` dispatched on the existing ApiWorker thread.
+
 ## [1.0.0] — 2026-05-21
 
 ### Added
