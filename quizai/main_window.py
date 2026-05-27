@@ -513,10 +513,11 @@ class SettingsDialog(QDialog):
         self._provider.currentIndexChanged.connect(self._on_provider_changed)
         form.addRow("Provider:", self._provider)
 
+        self._api_key_label = QLabel("API key:")
         self._api_key = QLineEdit()
         self._api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self._api_key.editingFinished.connect(self._on_key_edited)
-        form.addRow("API key:", self._api_key)
+        form.addRow(self._api_key_label, self._api_key)
 
         self._show_key = QCheckBox("Show key")
         self._show_key.toggled.connect(
@@ -719,21 +720,40 @@ class SettingsDialog(QDialog):
         provider = self._current_provider()
         info = PROVIDER_INFO.get(provider, {})
 
+        # Field label + echo mode depend on provider (Ollama uses a plaintext host URL).
+        self._api_key_label.setText(info.get("key_label", "API key:"))
+        is_secret = bool(info.get("key_is_secret", True))
+        if is_secret:
+            self._api_key.setEchoMode(
+                QLineEdit.EchoMode.Normal
+                if self._show_key.isChecked()
+                else QLineEdit.EchoMode.Password
+            )
+            self._show_key.show()
+        else:
+            self._api_key.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._show_key.hide()
+
         self._api_key.blockSignals(True)
-        self._api_key.setText(self._draft.api_key_for_provider(provider))
+        current = self._draft.api_key_for_provider(provider)
+        # Show a sensible default for Ollama if nothing's saved yet.
+        if provider == "ollama" and not current.strip():
+            from quizai.config import DEFAULT_OLLAMA_HOST
+            current = DEFAULT_OLLAMA_HOST
+        self._api_key.setText(current)
         self._api_key.blockSignals(False)
 
         help_text = info.get("key_help", "")
-        help_html = help_text.replace(
+        for url in (
             "https://aistudio.google.com/apikey",
-            "<a href='https://aistudio.google.com/apikey' style='color:#8ab4f8;'>"
-            "https://aistudio.google.com/apikey</a>",
-        ).replace(
             "https://console.anthropic.com/",
-            "<a href='https://console.anthropic.com/' style='color:#8ab4f8;'>"
-            "https://console.anthropic.com/</a>",
-        )
-        self._key_help.setText(help_html)
+            "https://ollama.com/download",
+        ):
+            help_text = help_text.replace(
+                url,
+                f"<a href='{url}' style='color:#8ab4f8;'>{url}</a>",
+            )
+        self._key_help.setText(help_text)
 
         self._model.blockSignals(True)
         self._model.clear()

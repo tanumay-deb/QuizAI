@@ -48,7 +48,7 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - ✍️ **Manual input** — type any question into the main window for an instant answer
 - 💾 **Searchable history** — every Q&A saved locally in SQLite, never sent anywhere except the AI provider
 - 🔔 **Sound + desktop notifications** — chime on success, error tone on failure (toggleable)
-- 🧩 **Pluggable AI providers** — Google Gemini (free tier) and Anthropic Claude out of the box
+- 🧩 **Pluggable AI providers** — Google Gemini (free tier), Anthropic Claude, and **Ollama** for fully-local, private models (Qwen2.5-VL, MiniCPM-V, Llama 3.2 Vision, Gemma 3, …)
 - 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
 - 🤖 **Telegram companion** — two-way chat bot: receive answers instantly on Telegram and ask follow-up questions directly from your phone
 

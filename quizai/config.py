@@ -37,7 +37,9 @@ DEFAULT_PROVIDER = "gemini"
 DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
     "anthropic": "claude-sonnet-4-6",
+    "ollama": "qwen2.5vl:7b",
 }
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 
 
 @dataclass
@@ -48,6 +50,7 @@ class Config:
     provider: str = DEFAULT_PROVIDER
     gemini_api_key: str = HARDCODED_GEMINI_API_KEY
     anthropic_api_key: str = ""
+    ollama_host: str = DEFAULT_OLLAMA_HOST
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
 
     # ---- Capture & scheduling.
@@ -88,18 +91,29 @@ class Config:
 
     # ---------------------------------------------------------- derived getters
     def effective_api_key(self) -> str:
-        """API key for the currently selected provider, UI settings first, then env vars."""
+        """Credential for the current provider, UI settings first then env vars.
+
+        For Ollama there is no API key — the value returned is the host URL
+        (default localhost:11434), which OllamaBackend interprets as such.
+        Always non-empty for Ollama so the `no API key set` guard is bypassed.
+        """
         provider = (self.provider or DEFAULT_PROVIDER).lower()
         if provider == "anthropic":
             ui_key = (self.anthropic_api_key or "").strip()
             if ui_key:
                 return ui_key
             return os.environ.get("ANTHROPIC_API_KEY", "").strip()
-            
+
+        if provider == "ollama":
+            host = (self.ollama_host or "").strip() or os.environ.get(
+                "OLLAMA_HOST", ""
+            ).strip()
+            return host or DEFAULT_OLLAMA_HOST
+
         ui_key = (self.gemini_api_key or "").strip()
         if ui_key:
             return ui_key
-            
+
         return (
             os.environ.get("GEMINI_API_KEY", "").strip()
             or os.environ.get("GOOGLE_API_KEY", "").strip()
@@ -121,6 +135,8 @@ class Config:
         provider = provider.lower()
         if provider == "anthropic":
             self.anthropic_api_key = key.strip()
+        elif provider == "ollama":
+            self.ollama_host = key.strip()
         else:
             self.gemini_api_key = key.strip()
 
@@ -128,6 +144,8 @@ class Config:
         provider = provider.lower()
         if provider == "anthropic":
             return self.anthropic_api_key or ""
+        if provider == "ollama":
+            return self.ollama_host or ""
         return self.gemini_api_key or ""
 
     # -------------------------------------------------------- (de)serialisation

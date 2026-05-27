@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-28
+
+### Added
+- **Ollama local-LLM backend** — run vision + reasoning entirely on your own machine, no API costs, nothing leaves the host. New provider "Ollama (local, private, free)" in Settings. Default model `qwen2.5vl:7b` (~4.7 GB, fits in 8 GB VRAM); other curated options include `minicpm-v:8b`, `llama3.2-vision:11b`, `gemma3:4b`, and the larger `qwen2.5vl:32b` for 24 GB+ rigs.
+- The API-key field becomes a plain-text "Host URL" field when Ollama is selected (default `http://localhost:11434`).
+- `OLLAMA_HOST` env var honoured as a fallback when the host field is blank.
+
+### Changed
+- `Config` gains `ollama_host` (default `http://localhost:11434`); `effective_api_key()` returns the host for the Ollama provider so the existing "is the backend configured?" gates work unchanged.
+- `_refresh_for_provider()` in the Settings dialog now drives field label / echo mode / help-text URL linking off per-provider metadata in `PROVIDER_INFO`, instead of hardcoding "API key".
+
+### Backend / internal
+- New `quizai/backends/ollama_backend.py` — vision + text via the Ollama HTTP `/api/chat` endpoint. Uses `"format": "json"` for the detection prompt to force valid structured output. No SDK dependency (stdlib `urllib`).
+
 ## [1.1.0] — 2026-05-28
 
 ### Added
