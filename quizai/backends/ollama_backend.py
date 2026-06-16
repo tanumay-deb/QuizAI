@@ -105,6 +105,54 @@ class OllamaBackend(Backend):
         text = self._chat(body)
         return parse_answer_text(text)
 
+    # ------------------------------------------------- vision: answer with image
+    def answer_questions_with_image(
+        self, questions: list[str], png_bytes: bytes
+    ) -> list[AnswerResult]:
+        if not questions:
+            return []
+        b64 = base64.standard_b64encode(png_bytes).decode("ascii")
+        numbered = "\n".join(f"{n + 1}. {q}" for n, q in enumerate(questions))
+        system = (
+            "You are a careful tutor. Use the IMAGE (it may contain a chart, graph, "
+            "diagram, table or figure) to answer each numbered question. Answer concisely "
+            "(for multiple choice give the letter AND the option text, e.g. 'D. May'; for "
+            "numeric give the value).\n"
+            'Reply ONLY with JSON: {"answers":[{"answer":str,"explanation":str}]} — one '
+            "entry per question, in order. Keep each explanation to one short sentence."
+        )
+        body = {
+            "model": self._model,
+            "stream": False,
+            "format": "json",
+            "keep_alive": _KEEP_ALIVE,
+            "options": {"temperature": 0.2, "num_predict": 1500, "num_ctx": _NUM_CTX},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": "Questions:\n" + numbered, "images": [b64]},
+            ],
+        }
+        text = self._chat(body)
+        try:
+            data = json.loads(text)
+            raw = data.get("answers", []) if isinstance(data, dict) else []
+        except json.JSONDecodeError:
+            raw = []
+        results: list[AnswerResult] = []
+        for item in raw:
+            if isinstance(item, dict):
+                results.append(
+                    AnswerResult(
+                        answer=str(item.get("answer") or "").strip(),
+                        explanation=str(item.get("explanation") or "").strip(),
+                    )
+                )
+            elif isinstance(item, str):
+                results.append(AnswerResult(answer=item.strip(), explanation=""))
+        while len(results) < len(questions):
+            results.append(AnswerResult(answer="(no answer)", explanation=""))
+        return results[: len(questions)]
+
     # ----------------------------------------------------------------- warmup
     def warmup(self) -> None:
         """Preload the model + vision encoder so the first real capture is fast.

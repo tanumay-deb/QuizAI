@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quizai-assistant"
-version = "1.2.0"
+version = "1.3.0"
 description = "Desktop AI study assistant: screen-capture quiz/exam questions, get reasoned answers with explanations."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -37,6 +37,7 @@ dependencies = [
     "pystray>=0.19.5",
     "google-genai>=0.3.0",
     "anthropic>=0.40.0",
+    "rapidocr-onnxruntime>=1.4",
 ]
 
 [project.optional-dependencies]
@@ -89,6 +90,7 @@ ignore = [
 "quizai/overlay.py" = ["RUF001"]  # ‹ › are intentional UI arrows
 "quizai/app.py" = ["RUF001"]       # same in notification text
 "quizai/screen_capture.py" = ["RUF001"]  # × is the intentional monitor-dimension separator
+"quizai/routing.py" = ["RUF001"]   # intentional math glyphs (× ÷ … ) in the router
 "quizai/backends/base.py" = ["RUF003"]  # en-dash in docstring comment
 
 # ----------------------------------------------------------------- pytest

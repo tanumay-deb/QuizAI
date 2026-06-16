@@ -17,7 +17,25 @@
       "Bash(python -c ' *)",
       "Bash(gh release create v1.2.0 --title 'QuizAI Assistant v1.2.0 — Ollama local LLMs' --target Telegram --notes ' *)",
       "Bash(python -m pip install -e .)",
-      "Bash(python -c \"import mss, PySide6; from quizai.app import run; print\\('imports OK'\\)\")"
+      "Bash(python -c \"import mss, PySide6; from quizai.app import run; print\\('imports OK'\\)\")",
+      "PowerShell($gpu = Get-CimInstance Win32_VideoController | Select-Object Name, @{n='VRAM_GB';e={[math]::Round\\($_.AdapterRAM/1GB,1\\)}}; $gpu | Format-List; $ram = [math]::Round\\(\\(Get-CimInstance Win32_ComputerSystem\\).TotalPhysicalMemory/1GB,1\\); \"RAM_GB: $ram\"; $cpu = \\(Get-CimInstance Win32_Processor\\).Name; \"CPU: $cpu\")",
+      "Bash(python -c \"from quizai.backends.ollama_backend import OllamaBackend; print\\('ok'\\)\")",
+      "PowerShell(\"=== loaded \\(ps\\) ===\"; try { \\(Invoke-RestMethod http://localhost:11434/api/ps\\).models | Format-List name,size,size_vram,details } catch { $_.Exception.Message }; \"=== installed \\(tags\\) ===\"; try { \\(Invoke-RestMethod http://localhost:11434/api/tags\\).models | Select-Object name,size | Format-Table -Auto } catch { $_.Exception.Message }; \"=== version ===\"; try { Invoke-RestMethod http://localhost:11434/api/version } catch { $_.Exception.Message })",
+      "Bash(QT_QPA_PLATFORM=offscreen python -c ' *)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:blog.roboflow.com)",
+      "Bash(python -m pip install rapidocr-onnxruntime)",
+      "Bash(grep -vE \"^$|Warning|warn|onnxruntime\")",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(gh pr *)",
+      "Bash(git fetch *)",
+      "Bash(git branch *)",
+      "Bash(git ls-tree *)",
+      "Bash(git worktree *)",
+      "Bash(git -C \"C:/Users/tanum/quizai-spin\" cherry-pick b524178)",
+      "Bash(git -C \"C:/Users/tanum/quizai-spin\" show --stat HEAD)"
     ]
   }
 }

@@ -91,6 +91,14 @@ class Config:
     telegram_token: str = HARDCODED_TELEGRAM_TOKEN
     telegram_chat_id: str = HARDCODED_TELEGRAM_CHAT_ID
 
+    # ---- OCR-first routing (Ollama fast path).
+    # Read the screen with RapidOCR, answer textual questions with a fast text
+    # model, and only fall back to the vision model when answering needs the
+    # image. Cuts local capture latency from ~18-24 s to ~3-5 s.
+    ocr_fast_path: bool = True
+    ocr_text_model: str = "gemma3:4b"
+    ocr_conf_floor: float = 0.55
+
     # ---- Caching.
     question_cache_enabled: bool = True
     question_cache_days: int = 7

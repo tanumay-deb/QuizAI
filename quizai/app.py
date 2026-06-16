@@ -96,15 +96,46 @@ class ApiWorker(QObject):
     # Detection cache: maps SHA-256(png) -> (timestamp, DetectionResult).
     _DETECT_CACHE_SIZE = 8
     _DETECT_CACHE_TTL = 60 * 60  # 1 hour
+    # OCR fast-path cache: maps SHA-256(png) -> (timestamp, list[QAItem]).
+    _OCR_CACHE_SIZE = 8
+    _OCR_CACHE_TTL = 60 * 60
 
     def __init__(self) -> None:
         super().__init__()
         self._backend: Backend | None = None
         self._detect_cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
+        # OCR-first routing state.
+        self._provider: str = ""
+        self._ollama_host: str = ""
+        self._ocr_reader = None  # lazy quizai.ocr.OCRReader
+        self._ocr_answers: dict[str, str] = {}  # precomputed answers for current capture
+        self._ocr_enabled: bool = False
+        self._ocr_text_model: str = "gemma3:4b"
+        self._ocr_conf_floor: float = 0.55
+        self._ocr_cache: OrderedDict[str, tuple[float, list]] = OrderedDict()
+        self._route_info: dict = {}  # per-capture telemetry, logged once per capture
+
+    @Slot(bool, str, float)
+    def set_ocr_config(self, enabled: bool, text_model: str, conf_floor: float) -> None:
+        """Configure the OCR-first fast path (runs on the worker thread)."""
+        self._ocr_enabled = bool(enabled)
+        self._ocr_text_model = text_model or "gemma3:4b"
+        self._ocr_conf_floor = float(conf_floor)
+        if self._ocr_enabled:
+            try:
+                if self._ocr_reader is None:
+                    from quizai.ocr import OCRReader
+
+                    self._ocr_reader = OCRReader()
+                self._ocr_reader.warmup()
+            except Exception:
+                log.debug("OCR warmup skipped/failed", exc_info=True)
 
     @Slot(str, str, str, str)
     def set_backend(self, provider: str, api_key: str, model: str, base_url: str = "") -> None:
         """(Re)build the backend. Called via queued connection from GUI thread."""
+        self._provider = (provider or "").strip().lower()
+        self._ollama_host = api_key if self._provider == "ollama" else ""
         if not api_key:
             self._backend = None
             return
@@ -158,20 +189,186 @@ class ApiWorker(QObject):
     def _handle_screen(self, job: _ScreenJob) -> None:
         assert self._backend is not None
         self.detection_started.emit("screen")
-        det = self._cached_detection(job.png)
-        if det is None:
-            det = self._backend.detect_and_extract_question(job.png)
-            self._store_detection(job.png, det)
-        if not det.has_question or not det.questions:
-            self.no_question_found.emit()
-            return
-        # Tell the UI all the extracted questions so the overlay can build
-        # its paginator. Then answer just the first one — subsequent ones
-        # are answered lazily as the user navigates.
-        self.questions_extracted.emit(list(det.questions))
-        first_q = det.questions[0]
-        ans = self._backend.answer_question(first_q)
-        self.answer_ready.emit("screen", first_q, ans.answer, ans.explanation, 0)
+        self._ocr_answers = {}
+        t0 = time.time()
+        # Per-capture telemetry — one CAPTURE log line is emitted in `finally`
+        # so dogfooding produces a tunable dataset (route mix, conf, latency).
+        self._route_info = {
+            "route": "vision",
+            "conf": None,
+            "chars": None,
+            "questions": 0,
+            "reason": "ocr fast path off (disabled or non-ollama)",
+            "cache": False,
+        }
+        try:
+            if self._try_ocr_fast_path(job):
+                return
+            cached = self._cached_detection(job.png)
+            det = cached
+            if det is None:
+                det = self._backend.detect_and_extract_question(job.png)
+                self._store_detection(job.png, det)
+            if not det.has_question or not det.questions:
+                self._route_info["questions"] = 0
+                self.no_question_found.emit()
+                return
+            self._route_info.update(questions=len(det.questions), cache=cached is not None)
+            # Tell the UI all the extracted questions so the overlay can build
+            # its paginator. Then answer just the first one — subsequent ones
+            # are answered lazily as the user navigates.
+            self.questions_extracted.emit(list(det.questions))
+            first_q = det.questions[0]
+            ans = self._backend.answer_question(first_q)
+            self.answer_ready.emit("screen", first_q, ans.answer, ans.explanation, 0)
+        finally:
+            self._log_capture(time.time() - t0)
+
+    # ------------------------------------------------------- OCR-first fast path
+    def _try_ocr_fast_path(self, job: _ScreenJob) -> bool:
+        """Read the screen with OCR, then answer. Returns True if it fully handled
+        the capture; False to fall back to the legacy vision detect+answer path.
+
+        - Ollama: local text model answers text questions; vision model handles
+          visual ones (keeps it free + offline).
+        - Cloud (Gemini/etc.): one combined call (OCR text + image) extracts and
+          answers everything — 1 request per capture instead of detect + N answers.
+
+        Updates self._route_info for telemetry (the CAPTURE line is logged by the
+        caller)."""
+        if not self._ocr_enabled:
+            return False
+        info = self._route_info
+        try:
+            key = hashlib.sha256(job.png).hexdigest()
+            cached_items = self._cached_ocr(key)
+            if cached_items is not None:
+                self._emit_ocr_items(cached_items)
+                info.update(
+                    route="cache",
+                    questions=len(cached_items),
+                    reason="ocr cache hit",
+                    cache=True,
+                )
+                return True
+
+            if self._ocr_reader is None:
+                from quizai.ocr import OCRReader
+
+                self._ocr_reader = OCRReader()
+            ocr = self._ocr_reader.read(job.png)
+            info.update(conf=ocr.mean_confidence, chars=ocr.char_count)
+            if ocr.char_count < 3:
+                info["reason"] = "no usable text from OCR"
+                return False
+
+            if self._provider == "ollama":
+                return self._ocr_answer_ollama(job, ocr, key, info)
+            return self._ocr_answer_cloud(job, ocr, key, info)
+        except Exception as exc:
+            log.warning("OCR fast path failed (%s); falling back to vision", exc)
+            info["reason"] = f"ocr error: {exc}"
+            return False
+
+    def _ocr_answer_cloud(self, job: _ScreenJob, ocr, key: str, info: dict) -> bool:
+        """One combined cloud call: OCR text + image → extract + answer all."""
+        try:
+            items = self._backend.answer_screen(ocr.text, job.png)
+        except NotImplementedError:
+            info["reason"] = "single-call not supported; using detect+answer"
+            return False
+        if not items:
+            info["reason"] = "no questions extracted (cloud)"
+            return False
+        self._store_ocr(key, items)
+        self._emit_ocr_items(items)
+        info.update(route="cloud", questions=len(items), reason="answered via cloud (1 call)")
+        return True
+
+    def _ocr_answer_ollama(self, job: _ScreenJob, ocr, key: str, info: dict) -> bool:
+        """Local text model answers text questions; vision model the visual ones."""
+        from quizai.routing import decide_route
+        from quizai.text_qa import extract_and_answer
+
+        route = decide_route(
+            ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor
+        )
+        # OCR is the detection layer — extract questions from its text even when
+        # the page is visual (vision detecting in a cluttered capture is unreliable).
+        items = extract_and_answer(ocr.text, self._ocr_text_model, self._ollama_host)
+        if not items:
+            info["reason"] = "no questions extracted from OCR text"
+            return False
+        force_vision = route.use_vision
+        vis_idx = [
+            n
+            for n, i in enumerate(items)
+            if force_vision or i.requires_visual_context or not i.answer
+        ]
+        if vis_idx:
+            try:
+                vis_qs = [items[n].question for n in vis_idx]
+                vis_ans = self._backend.answer_questions_with_image(vis_qs, job.png)
+                for n, a in zip(vis_idx, vis_ans, strict=False):
+                    items[n].answer = a.answer
+                    items[n].explanation = a.explanation
+            except NotImplementedError:
+                pass  # backend can't answer-with-image — leave placeholders
+            except Exception as exc:
+                log.warning("Vision answering failed: %s", exc)
+        if not any(i.answer for i in items):
+            info.update(questions=len(items), reason="no answers from text or vision")
+            return False
+        self._store_ocr(key, items)
+        self._emit_ocr_items(items)
+        n_vis = len(vis_idx)
+        if force_vision:
+            reason = "answered via vision (image)"
+        elif n_vis:
+            reason = f"answered from OCR text ({n_vis} via vision)"
+        else:
+            reason = "answered from OCR text"
+        info.update(
+            route=("vision" if force_vision else "text"),
+            questions=len(items),
+            reason=reason,
+        )
+        return True
+
+    _NEEDS_IMAGE = "(needs image — re-capture just this question)"
+
+    def _emit_ocr_items(self, items: list) -> None:
+        """Feed OCR-derived Q&A through the existing questions/answer signals.
+
+        Text-answerable questions show their answer; questions flagged as needing
+        visual context show a placeholder (per-question vision escalation is Phase 3)."""
+
+        def ans(i) -> str:
+            return i.answer or self._NEEDS_IMAGE
+
+        self._ocr_answers = {
+            i.question: (ans(i), getattr(i, "explanation", "") or "") for i in items
+        }
+        self.questions_extracted.emit([i.question for i in items])
+        first = items[0]
+        self.answer_ready.emit(
+            "screen", first.question, ans(first), getattr(first, "explanation", "") or "", 0
+        )
+
+    def _log_capture(self, latency: float) -> None:
+        info = self._route_info or {}
+        conf = info.get("conf")
+        chars = info.get("chars")
+        log.info(
+            "CAPTURE route=%s ocr_conf=%s chars=%s questions=%d latency=%.2fs cache=%s reason=%s",
+            info.get("route", "?"),
+            f"{conf:.2f}" if conf is not None else "-",
+            chars if chars is not None else "-",
+            info.get("questions", 0),
+            latency,
+            "hit" if info.get("cache") else "miss",
+            info.get("reason", ""),
+        )
 
     # ----------------------------------------------------------------- manual
     def _handle_manual(self, job: _ManualJob) -> None:
@@ -186,6 +383,12 @@ class ApiWorker(QObject):
 
     # ------------------------------------------------- single-question answer
     def _handle_answer_index(self, job: _AnswerJob) -> None:
+        # OCR fast path already computed this answer — reuse it, don't re-call.
+        precomputed = self._ocr_answers.get(job.question)
+        if precomputed is not None:
+            answer, explanation = precomputed
+            self.answer_ready.emit("screen", job.question, answer, explanation, job.index)
+            return
         assert self._backend is not None
         ans = self._backend.answer_question(job.question)
         self.answer_ready.emit("screen", job.question, ans.answer, ans.explanation, job.index)
@@ -226,6 +429,25 @@ class ApiWorker(QObject):
         while len(self._detect_cache) > self._DETECT_CACHE_SIZE:
             self._detect_cache.popitem(last=False)
 
+    # ------------------------------------------------------- OCR fast-path cache
+    def _cached_ocr(self, key: str) -> list | None:
+        now = time.time()
+        expired = [k for k, (ts, _) in self._ocr_cache.items() if now - ts > self._OCR_CACHE_TTL]
+        for k in expired:
+            self._ocr_cache.pop(k, None)
+        entry = self._ocr_cache.get(key)
+        if entry is None:
+            return None
+        self._ocr_cache.move_to_end(key)
+        log.info("OCR-cache hit (key=%s…)", key[:12])
+        return entry[1]
+
+    def _store_ocr(self, key: str, items: list) -> None:
+        self._ocr_cache[key] = (time.time(), items)
+        self._ocr_cache.move_to_end(key)
+        while len(self._ocr_cache) > self._OCR_CACHE_SIZE:
+            self._ocr_cache.popitem(last=False)
+
 
 def _job_index(job: object) -> int:
     if isinstance(job, _AnswerJob):
@@ -258,6 +480,7 @@ class QuizAIApp(QObject):
 
     _job_requested = Signal(object)
     _backend_changed = Signal(str, str, str, str)  # provider, api_key, model, base_url
+    _ocr_config_changed = Signal(bool, str, float)  # enabled, text_model, conf_floor
     _telegram_message_received = Signal(str)
 
     def __init__(self, qapp: QApplication) -> None:
@@ -307,6 +530,9 @@ class QuizAIApp(QObject):
 
         self._job_requested.connect(self._worker.run_job, Qt.ConnectionType.QueuedConnection)
         self._backend_changed.connect(self._worker.set_backend, Qt.ConnectionType.QueuedConnection)
+        self._ocr_config_changed.connect(
+            self._worker.set_ocr_config, Qt.ConnectionType.QueuedConnection
+        )
         self._worker.detection_started.connect(self._on_detection_started)
         self._worker.questions_extracted.connect(self._on_questions_extracted)
         self._worker.no_question_found.connect(self._on_no_question_found)
@@ -343,6 +569,7 @@ class QuizAIApp(QObject):
         if not self._config.effective_api_key():
             self._prompt_for_api_key()
         self._push_backend_to_worker()
+        self._push_ocr_config()
 
         if self._config.show_window_on_startup:
             self._show_window()
@@ -634,6 +861,9 @@ class QuizAIApp(QObject):
         self._notifier.set_sound_enabled(new_cfg.play_sound)
         self._notifier.set_notifications_enabled(new_cfg.show_notifications)
 
+        # OCR-first routing config.
+        self._push_ocr_config()
+
         # Re-init backend if provider, key, or model changed.
         provider_changed = new_cfg.provider != old_cfg.provider
         key_changed = new_cfg.effective_api_key() != old_cfg.effective_api_key()
@@ -694,6 +924,13 @@ class QuizAIApp(QObject):
             key,
             self._config.effective_model(),
             base_url,
+        )
+
+    def _push_ocr_config(self) -> None:
+        self._ocr_config_changed.emit(
+            bool(self._config.ocr_fast_path),
+            self._config.ocr_text_model,
+            float(self._config.ocr_conf_floor),
         )
 
     def _apply_hotkeys(self) -> None:

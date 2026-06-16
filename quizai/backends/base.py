@@ -37,6 +37,18 @@ class AnswerResult:
     explanation: str
 
 
+@dataclass
+class QAItem:
+    """One extracted question + its answer. Used by the OCR-first pipeline and
+    the single-call cloud reader (`answer_screen`)."""
+
+    question: str
+    answer: str = ""
+    explanation: str = ""
+    requires_visual_context: bool = False
+    confidence: float = 0.0
+
+
 class BackendError(Exception):
     """Raised by backends when an API call fails. The string form is shown to
     the user, so keep it short and human-readable."""
@@ -131,6 +143,26 @@ class Backend(ABC):
         the user's first capture. Must never raise.
         """
         return
+
+    def answer_questions_with_image(
+        self, questions: list[str], png_bytes: bytes
+    ) -> list[AnswerResult]:
+        """Vision: answer already-extracted questions using the screenshot.
+
+        Used for visually-dependent questions (charts, diagrams, geometry) where
+        OCR text alone can't answer. One call answers all `questions`, in order.
+        Default: unsupported.
+        """
+        raise NotImplementedError
+
+    def answer_screen(self, ocr_text: str, png_bytes: bytes) -> list[QAItem]:
+        """One-call screen reader: given OCR text + the screenshot, extract every
+        question and answer each in a SINGLE request. Lets cloud backends handle
+        a whole capture in one API call (1 request instead of detect + N answers),
+        using the image for charts/figures and the OCR text for exact wording.
+        Default: unsupported.
+        """
+        raise NotImplementedError
 
 
 def build_followup_prompt(context: str, question: str) -> str:

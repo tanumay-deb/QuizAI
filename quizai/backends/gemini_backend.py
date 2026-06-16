@@ -26,6 +26,7 @@ from quizai.backends.base import (
     Backend,
     BackendError,
     DetectionResult,
+    QAItem,
     build_followup_prompt,
     parse_answer_text,
     parse_detection_json,
@@ -39,6 +40,18 @@ T = TypeVar("T")
 # Retry config for transient errors. 3 attempts, 1s/2s/4s waits.
 _MAX_ATTEMPTS = 3
 _INITIAL_BACKOFF_S = 1.0
+
+# One-call screen reader: extract every question and answer it in a single
+# request (image + OCR text), so a whole capture costs one API call.
+_SCREEN_SYSTEM = (
+    "You are given a screenshot of a quiz/exam (image) plus OCR text extracted "
+    "from it. Extract EVERY question verbatim, including its answer choices, and "
+    "answer each. Use the OCR text for exact wording; use the IMAGE to read any "
+    "chart, graph, figure, table, or diagram needed to answer. For multiple choice "
+    "give the letter AND the option text (e.g. 'D. May'); for numeric give the value. "
+    "Add a 1-2 sentence explanation per question.\n"
+    'Reply ONLY with JSON: {"questions":[{"question":str,"answer":str,"explanation":str}]}'
+)
 
 
 class GeminiBackend(Backend):
@@ -106,6 +119,61 @@ class GeminiBackend(Backend):
             raise BackendError(_pretty_gemini_error(e)) from e
 
         return parse_answer_text(_extract_text(response))
+
+    # ------------------------------------------------ one-call screen reader
+    def answer_screen(self, ocr_text: str, png_bytes: bytes) -> list[QAItem]:
+        import json
+
+        from google.genai import types
+
+        def _call():
+            return self._client.models.generate_content(
+                model=self._model,
+                contents=[
+                    types.Part.from_bytes(data=png_bytes, mime_type="image/png"),
+                    "OCR TEXT (exact wording; use the image for charts/figures/tables):\n"
+                    + (ocr_text or ""),
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=_SCREEN_SYSTEM,
+                    max_output_tokens=2048,
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                ),
+            )
+
+        try:
+            response = _with_retry(_call)
+        except Exception as e:
+            raise BackendError(_pretty_gemini_error(e)) from e
+
+        raw = _extract_text(response)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        if isinstance(data, dict):
+            qs = data.get("questions", []) or []
+        elif isinstance(data, list):
+            qs = data
+        else:
+            qs = []
+
+        items: list[QAItem] = []
+        for q in qs:
+            if not isinstance(q, dict):
+                continue
+            question = str(q.get("question", "") or "").strip()
+            if not question:
+                continue
+            items.append(
+                QAItem(
+                    question=question,
+                    answer=str(q.get("answer") or "").strip(),
+                    explanation=str(q.get("explanation") or "").strip(),
+                )
+            )
+        return items
 
 
 # ---------------------------------------------------------------------- retry

@@ -1,0 +1,30 @@
+{
+  "name": "quizai-assistant",
+  "version": "1.3.0",
+  "description": "Desktop AI study assistant — screen-capture quiz/exam questions, get reasoned answers. This npm wrapper downloads and launches the QuizAI Windows executable from GitHub Releases.",
+  "bin": {
+    "quizai": "bin/quizai.js"
+  },
+  "files": [
+    "bin/quizai.js"
+  ],
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tanumay-deb/QuizAI.git"
+  },
+  "homepage": "https://github.com/tanumay-deb/QuizAI#readme",
+  "keywords": [
+    "ai",
+    "study",
+    "quiz",
+    "ocr",
+    "desktop"
+  ]
+}
