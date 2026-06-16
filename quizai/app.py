@@ -226,13 +226,17 @@ class ApiWorker(QObject):
 
     # ------------------------------------------------------- OCR-first fast path
     def _try_ocr_fast_path(self, job: _ScreenJob) -> bool:
-        """Read the screen with OCR and answer textual questions with the fast
-        text model. Returns True if it fully handled the capture; False to fall
-        back to the vision path (low confidence, visual dependency, or error).
+        """Read the screen with OCR, then answer. Returns True if it fully handled
+        the capture; False to fall back to the legacy vision detect+answer path.
 
-        Updates self._route_info for telemetry (the CAPTURE line is logged by
-        the caller)."""
-        if not (self._ocr_enabled and self._provider == "ollama"):
+        - Ollama: local text model answers text questions; vision model handles
+          visual ones (keeps it free + offline).
+        - Cloud (Gemini/etc.): one combined call (OCR text + image) extracts and
+          answers everything — 1 request per capture instead of detect + N answers.
+
+        Updates self._route_info for telemetry (the CAPTURE line is logged by the
+        caller)."""
+        if not self._ocr_enabled:
             return False
         info = self._route_info
         try:
@@ -241,15 +245,12 @@ class ApiWorker(QObject):
             if cached_items is not None:
                 self._emit_ocr_items(cached_items)
                 info.update(
-                    route="text",
+                    route="cache",
                     questions=len(cached_items),
                     reason="ocr cache hit",
                     cache=True,
                 )
                 return True
-
-            from quizai.routing import decide_route
-            from quizai.text_qa import extract_and_answer
 
             if self._ocr_reader is None:
                 from quizai.ocr import OCRReader
@@ -257,58 +258,82 @@ class ApiWorker(QObject):
                 self._ocr_reader = OCRReader()
             ocr = self._ocr_reader.read(job.png)
             info.update(conf=ocr.mean_confidence, chars=ocr.char_count)
-            route = decide_route(
-                ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor
-            )
-            # OCR is the detection layer — extract the questions from its text even
-            # when the page is visual. (Vision detecting questions in a cluttered
-            # full-screen capture is unreliable; reading known questions is not.)
-            items = extract_and_answer(ocr.text, self._ocr_text_model, self._ollama_host)
-            if not items:
-                info["reason"] = "no questions extracted from OCR text"
+            if ocr.char_count < 3:
+                info["reason"] = "no usable text from OCR"
                 return False
-            # Answer each question with the right engine: the text model already
-            # answered the textual ones; visually-dependent ones (whole page flagged
-            # visual, per-question flag, or no text answer) are answered by the vision
-            # model using the screenshot + the extracted question text.
-            force_vision = route.use_vision
-            vis_idx = [
-                n
-                for n, i in enumerate(items)
-                if force_vision or i.requires_visual_context or not i.answer
-            ]
-            if vis_idx:
-                try:
-                    vis_qs = [items[n].question for n in vis_idx]
-                    vis_ans = self._backend.answer_questions_with_image(vis_qs, job.png)
-                    for n, a in zip(vis_idx, vis_ans, strict=False):
-                        items[n].answer = a.answer
-                except NotImplementedError:
-                    pass  # backend can't answer-with-image — leave placeholders
-                except Exception as exc:
-                    log.warning("Vision answering failed: %s", exc)
-            if not any(i.answer for i in items):
-                info.update(questions=len(items), reason="no answers from text or vision")
-                return False
-            self._store_ocr(key, items)
-            self._emit_ocr_items(items)
-            n_vis = len(vis_idx)
-            if force_vision:
-                reason = "answered via vision (image)"
-            elif n_vis:
-                reason = f"answered from OCR text ({n_vis} via vision)"
-            else:
-                reason = "answered from OCR text"
-            info.update(
-                route=("vision" if force_vision else "text"),
-                questions=len(items),
-                reason=reason,
-            )
-            return True
+
+            if self._provider == "ollama":
+                return self._ocr_answer_ollama(job, ocr, key, info)
+            return self._ocr_answer_cloud(job, ocr, key, info)
         except Exception as exc:
             log.warning("OCR fast path failed (%s); falling back to vision", exc)
             info["reason"] = f"ocr error: {exc}"
             return False
+
+    def _ocr_answer_cloud(self, job: _ScreenJob, ocr, key: str, info: dict) -> bool:
+        """One combined cloud call: OCR text + image → extract + answer all."""
+        try:
+            items = self._backend.answer_screen(ocr.text, job.png)
+        except NotImplementedError:
+            info["reason"] = "single-call not supported; using detect+answer"
+            return False
+        if not items:
+            info["reason"] = "no questions extracted (cloud)"
+            return False
+        self._store_ocr(key, items)
+        self._emit_ocr_items(items)
+        info.update(route="cloud", questions=len(items), reason="answered via cloud (1 call)")
+        return True
+
+    def _ocr_answer_ollama(self, job: _ScreenJob, ocr, key: str, info: dict) -> bool:
+        """Local text model answers text questions; vision model the visual ones."""
+        from quizai.routing import decide_route
+        from quizai.text_qa import extract_and_answer
+
+        route = decide_route(
+            ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor
+        )
+        # OCR is the detection layer — extract questions from its text even when
+        # the page is visual (vision detecting in a cluttered capture is unreliable).
+        items = extract_and_answer(ocr.text, self._ocr_text_model, self._ollama_host)
+        if not items:
+            info["reason"] = "no questions extracted from OCR text"
+            return False
+        force_vision = route.use_vision
+        vis_idx = [
+            n
+            for n, i in enumerate(items)
+            if force_vision or i.requires_visual_context or not i.answer
+        ]
+        if vis_idx:
+            try:
+                vis_qs = [items[n].question for n in vis_idx]
+                vis_ans = self._backend.answer_questions_with_image(vis_qs, job.png)
+                for n, a in zip(vis_idx, vis_ans, strict=False):
+                    items[n].answer = a.answer
+                    items[n].explanation = a.explanation
+            except NotImplementedError:
+                pass  # backend can't answer-with-image — leave placeholders
+            except Exception as exc:
+                log.warning("Vision answering failed: %s", exc)
+        if not any(i.answer for i in items):
+            info.update(questions=len(items), reason="no answers from text or vision")
+            return False
+        self._store_ocr(key, items)
+        self._emit_ocr_items(items)
+        n_vis = len(vis_idx)
+        if force_vision:
+            reason = "answered via vision (image)"
+        elif n_vis:
+            reason = f"answered from OCR text ({n_vis} via vision)"
+        else:
+            reason = "answered from OCR text"
+        info.update(
+            route=("vision" if force_vision else "text"),
+            questions=len(items),
+            reason=reason,
+        )
+        return True
 
     _NEEDS_IMAGE = "(needs image — re-capture just this question)"
 
@@ -321,10 +346,14 @@ class ApiWorker(QObject):
         def ans(i) -> str:
             return i.answer or self._NEEDS_IMAGE
 
-        self._ocr_answers = {i.question: ans(i) for i in items}
+        self._ocr_answers = {
+            i.question: (ans(i), getattr(i, "explanation", "") or "") for i in items
+        }
         self.questions_extracted.emit([i.question for i in items])
         first = items[0]
-        self.answer_ready.emit("screen", first.question, ans(first), "", 0)
+        self.answer_ready.emit(
+            "screen", first.question, ans(first), getattr(first, "explanation", "") or "", 0
+        )
 
     def _log_capture(self, latency: float) -> None:
         info = self._route_info or {}
@@ -357,7 +386,8 @@ class ApiWorker(QObject):
         # OCR fast path already computed this answer — reuse it, don't re-call.
         precomputed = self._ocr_answers.get(job.question)
         if precomputed is not None:
-            self.answer_ready.emit("screen", job.question, precomputed, "", job.index)
+            answer, explanation = precomputed
+            self.answer_ready.emit("screen", job.question, answer, explanation, job.index)
             return
         assert self._backend is not None
         ans = self._backend.answer_question(job.question)

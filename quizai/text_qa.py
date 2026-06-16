@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 
+from quizai.backends.base import QAItem
 from quizai.logger import get_logger
 
 log = get_logger(__name__)
@@ -36,14 +36,6 @@ _SYSTEM = (
     'Reply ONLY with JSON: {"questions":[{"question":str,"requires_visual_context":bool,'
     '"answer":str|null,"confidence":number}]}'
 )
-
-
-@dataclass
-class QAItem:
-    question: str
-    answer: str
-    requires_visual_context: bool
-    confidence: float
 
 
 def extract_and_answer(
