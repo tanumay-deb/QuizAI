@@ -260,27 +260,50 @@ class ApiWorker(QObject):
             route = decide_route(
                 ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor
             )
-            if route.use_vision:
-                info["reason"] = route.reason
-                return False
+            # OCR is the detection layer — extract the questions from its text even
+            # when the page is visual. (Vision detecting questions in a cluttered
+            # full-screen capture is unreliable; reading known questions is not.)
             items = extract_and_answer(ocr.text, self._ocr_text_model, self._ollama_host)
             if not items:
                 info["reason"] = "no questions extracted from OCR text"
                 return False
-            # Only fall back to vision when NOTHING is answerable from text. If some
-            # questions are answerable, show them and mark the visual ones — don't
-            # discard the whole page because one question references an image.
-            answerable = [i for i in items if not i.requires_visual_context and i.answer]
-            if not answerable:
-                info.update(questions=len(items), reason="all questions need visual context")
+            # Answer each question with the right engine: the text model already
+            # answered the textual ones; visually-dependent ones (whole page flagged
+            # visual, per-question flag, or no text answer) are answered by the vision
+            # model using the screenshot + the extracted question text.
+            force_vision = route.use_vision
+            vis_idx = [
+                n
+                for n, i in enumerate(items)
+                if force_vision or i.requires_visual_context or not i.answer
+            ]
+            if vis_idx:
+                try:
+                    vis_qs = [items[n].question for n in vis_idx]
+                    vis_ans = self._backend.answer_questions_with_image(vis_qs, job.png)
+                    for n, a in zip(vis_idx, vis_ans):
+                        items[n].answer = a.answer
+                except NotImplementedError:
+                    pass  # backend can't answer-with-image — leave placeholders
+                except Exception as exc:
+                    log.warning("Vision answering failed: %s", exc)
+            if not any(i.answer for i in items):
+                info.update(questions=len(items), reason="no answers from text or vision")
                 return False
             self._store_ocr(key, items)
             self._emit_ocr_items(items)
-            n_visual = len(items) - len(answerable)
-            reason = "answered from OCR text"
-            if n_visual:
-                reason += f" ({n_visual} need image)"
-            info.update(route="text", questions=len(items), reason=reason)
+            n_vis = len(vis_idx)
+            if force_vision:
+                reason = "answered via vision (image)"
+            elif n_vis:
+                reason = f"answered from OCR text ({n_vis} via vision)"
+            else:
+                reason = "answered from OCR text"
+            info.update(
+                route=("vision" if force_vision else "text"),
+                questions=len(items),
+                reason=reason,
+            )
             return True
         except Exception as exc:
             log.warning("OCR fast path failed (%s); falling back to vision", exc)
@@ -296,7 +319,7 @@ class ApiWorker(QObject):
         visual context show a placeholder (per-question vision escalation is Phase 3)."""
 
         def ans(i) -> str:
-            return i.answer if (not i.requires_visual_context and i.answer) else self._NEEDS_IMAGE
+            return i.answer or self._NEEDS_IMAGE
 
         self._ocr_answers = {i.question: ans(i) for i in items}
         self.questions_extracted.emit([i.question for i in items])

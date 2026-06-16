@@ -132,6 +132,17 @@ class Backend(ABC):
         """
         return
 
+    def answer_questions_with_image(
+        self, questions: list[str], png_bytes: bytes
+    ) -> list[AnswerResult]:
+        """Vision: answer already-extracted questions using the screenshot.
+
+        Used for visually-dependent questions (charts, diagrams, geometry) where
+        OCR text alone can't answer. One call answers all `questions`, in order.
+        Default: unsupported.
+        """
+        raise NotImplementedError
+
 
 def build_followup_prompt(context: str, question: str) -> str:
     """Compose the user message for a follow-up question."""
