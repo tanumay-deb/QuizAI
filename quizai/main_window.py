@@ -68,6 +68,27 @@ QPlainTextEdit:focus, QLineEdit:focus, QTextBrowser:focus, QListWidget:focus,
 QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
     border: 1px solid #4c84e0;
 }
+/* The padding above squeezes the up-button out of its hit area (up stops
+   working while down still does) unless we anchor the buttons to the border
+   box and give them an explicit width. */
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border-left: 1px solid #2f333d;
+    border-top-right-radius: 6px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border-left: 1px solid #2f333d;
+    border-bottom-right-radius: 6px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #2c3140;
+}
 QPushButton {
     background-color: #2c3140;
     color: #f0f2f8;
