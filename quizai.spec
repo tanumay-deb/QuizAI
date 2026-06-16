@@ -12,14 +12,16 @@
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 block_cipher = None
 
 # Excluding libraries we don't use cuts binary size noticeably (PyInstaller
-# bundles transitive imports aggressively).
+# bundles transitive imports aggressively). NOTE: numpy is REQUIRED (RapidOCR /
+# OpenCV / onnxruntime depend on it) — do not exclude it.
 EXCLUDES = [
     "tkinter",
     "matplotlib",
-    "numpy",
     "pandas",
     "scipy",
     "IPython",
@@ -35,11 +37,21 @@ HIDDEN = [
     "PySide6.QtNetwork",  # transitively required by multimedia
 ]
 
+# The OCR-first path needs RapidOCR (ONNX model files + config), onnxruntime
+# (native provider DLLs), and OpenCV. collect_all pulls their data files,
+# binaries, and hidden submodules so the frozen exe can do local OCR.
+_datas, _binaries = [], []
+for _pkg in ("rapidocr_onnxruntime", "onnxruntime", "cv2"):
+    _d, _b, _h = collect_all(_pkg)
+    _datas += _d
+    _binaries += _b
+    HIDDEN += _h
+
 a = Analysis(
     ["quizai/__main__.py"],
     pathex=["."],
-    binaries=[],
-    datas=[],
+    binaries=_binaries,
+    datas=_datas,
     hiddenimports=HIDDEN,
     hookspath=[],
     runtime_hooks=[],

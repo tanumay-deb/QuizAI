@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-06-16
+
+### Added
+- **OCR-first routing (local)** — when using Ollama, screenshots are read with RapidOCR (~0.3 s) and routed: textual questions answered by a fast text model, only genuinely visual ones (charts/diagrams) escalated to the vision model. Cuts local capture latency from ~18–24 s to ~3–5 s. New `quizai/ocr.py`, `quizai/routing.py`, `quizai/text_qa.py`.
+- **Single-call cloud screen reader** — cloud providers (Gemini) now answer a whole capture in **one** request (OCR text + image → extract + answer all), instead of detect + N answers. Easier on free-tier rate limits. New `Backend.answer_screen`.
+- **OpenAI-compatible backend** — point QuizAI at OpenAI, Groq, OpenRouter, or LM Studio via Base URL + key.
+- **Resizable overlay** — drag the corner to resize; size persists across captures and restarts.
+- **Per-capture telemetry + OCR cache** — one `CAPTURE` log line per capture (route/confidence/latency); identical re-captures reuse OCR results.
+- **Windows standalone executable + npm launcher** — download `QuizAI.exe` from Releases, or install in one go with `npx github:tanumay-deb/QuizAI`.
+
+### Changed / Fixed
+- Ollama performance: startup model warm-up, `keep_alive`, and pinned `num_ctx` (ignores the desktop app's huge default context that overflowed VRAM).
+- Settings spinbox increase (▲) buttons are now clickable (QSS sub-control fix).
+- Repo-wide `ruff` lint + format cleanup; stale overlay/config tests fixed.
+
 ## [1.2.0] — 2026-05-28
 
 ### Added

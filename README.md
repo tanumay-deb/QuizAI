@@ -52,6 +52,21 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
 - 🤖 **Telegram companion** — two-way chat bot: receive answers instantly on Telegram and ask follow-up questions directly from your phone
 
+## Quick install (Windows) — one go
+
+**Option A — download the app (no Python, nothing to set up):**
+1. Grab **`QuizAI.exe`** from the [latest release](https://github.com/tanumay-deb/QuizAI/releases/latest).
+2. Double-click it. QuizAI starts in the system tray (near the clock).
+3. On first launch, paste a free [Gemini key](https://aistudio.google.com/apikey) — or pick **Ollama** in Settings to run fully offline.
+
+**Option B — one command via npm/npx** (needs [Node.js](https://nodejs.org)):
+```bash
+npx github:tanumay-deb/QuizAI
+```
+That downloads `QuizAI.exe` from the release (once, cached in `~/.quizai-bin`) and launches it — same app as Option A; the npm package is just a launcher.
+
+> Both run the prebuilt **Windows** binary. On macOS/Linux (or to hack on the code), install from source — see [Getting started](#getting-started-step-by-step) below.
+
 ## Requirements
 
 - **Python 3.10 or newer**
