@@ -58,6 +58,31 @@ def capture(monitor_index: int = 0) -> Screenshot:
     return Screenshot(png_bytes=png, width=img.width, height=img.height)
 
 
+@dataclass
+class MonitorInfo:
+    index: int
+    label: str
+    width: int
+    height: int
+
+
+def list_monitors() -> list[MonitorInfo]:
+    """Enumerate available monitors. Index 0 is the virtual "all monitors" stitch."""
+    out: list[MonitorInfo] = []
+    try:
+        with mss.mss() as sct:
+            for i, mon in enumerate(sct.monitors):
+                w, h = int(mon.get("width", 0)), int(mon.get("height", 0))
+                if i == 0:
+                    label = f"All monitors ({w}×{h})"
+                else:
+                    label = f"Monitor {i} — {w}×{h} @ ({mon.get('left', 0)}, {mon.get('top', 0)})"
+                out.append(MonitorInfo(index=i, label=label, width=w, height=h))
+    except Exception as exc:
+        log.warning("Could not enumerate monitors: %s", exc)
+    return out
+
+
 def _downscale(img: Image.Image, max_dim: int) -> Image.Image:
     """Downscale so the longest edge <= max_dim. Preserves aspect ratio."""
     w, h = img.size

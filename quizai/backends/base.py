@@ -114,8 +114,33 @@ class Backend(ABC):
         """Vision: decide if questions are on screen and extract them."""
 
     @abstractmethod
-    def answer_question(self, question: str) -> AnswerResult:
-        """Text: reason through and answer a single question."""
+    def answer_question(self, question: str, context: str | None = None) -> AnswerResult:
+        """Text: reason through and answer a single question.
+
+        `context`, when provided, is prior conversation text the model should
+        use as background (e.g. "Previous Q: …\nPrevious A: …"). Backends
+        should prepend it to the user turn rather than treat it as the system
+        prompt — keeps the ANSWER format contract intact.
+        """
+
+    def warmup(self) -> None:
+        """Optional: preload the model so the first real call isn't cold.
+
+        Default is a no-op (cloud backends need no warmup). Local backends
+        override this to load weights + vision encoder into memory ahead of
+        the user's first capture. Must never raise.
+        """
+        return
+
+
+def build_followup_prompt(context: str, question: str) -> str:
+    """Compose the user message for a follow-up question."""
+    return (
+        "Earlier in this conversation:\n"
+        f"{context.strip()}\n\n"
+        "Follow-up question:\n"
+        f"{question.strip()}"
+    )
 
 
 # ============================================================ shared parsers

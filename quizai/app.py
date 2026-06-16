@@ -14,7 +14,10 @@ Wires together:
 
 from __future__ import annotations
 
+import hashlib
 import sys
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from PySide6.QtCore import QMetaObject, QObject, Qt, QThread, QTimer, Signal, Slot
@@ -29,7 +32,7 @@ from PySide6.QtWidgets import (
 from quizai import __app_name__
 from quizai.backends import Backend, BackendError, create_backend
 from quizai.config import Config, load_config, save_config
-from quizai.history import add_entry, init_db
+from quizai.history import add_entry, find_cached_answer, init_db
 from quizai.hotkey_manager import HotkeyManager
 from quizai.logger import get_logger, setup_logging
 from quizai.main_window import MainWindow
@@ -69,6 +72,15 @@ class _AnswerJob:
     question: str
 
 
+@dataclass
+class _FollowUpJob:
+    """Answer a follow-up question with prior Q&A as context."""
+
+    text: str
+    context: str
+    source: str = "followup"
+
+
 # ================================================================ ApiWorker
 class ApiWorker(QObject):
     """Lives on a QThread; receives jobs and emits results back to the UI."""
@@ -81,19 +93,32 @@ class ApiWorker(QObject):
     answer_ready = Signal(str, str, str, str, int)
     api_error = Signal(str, int)  # message, index (-1 if not paginator)
 
+    # Detection cache: maps SHA-256(png) -> (timestamp, DetectionResult).
+    _DETECT_CACHE_SIZE = 8
+    _DETECT_CACHE_TTL = 60 * 60  # 1 hour
+
     def __init__(self) -> None:
         super().__init__()
         self._backend: Backend | None = None
+        self._detect_cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
 
-    @Slot(str, str, str)
-    def set_backend(self, provider: str, api_key: str, model: str) -> None:
+    @Slot(str, str, str, str)
+    def set_backend(self, provider: str, api_key: str, model: str, base_url: str = "") -> None:
         """(Re)build the backend. Called via queued connection from GUI thread."""
         if not api_key:
             self._backend = None
             return
         try:
-            self._backend = create_backend(provider=provider, api_key=api_key, model=model)
+            self._backend = create_backend(
+                provider=provider, api_key=api_key, model=model, base_url=base_url or None
+            )
             log.info("Backend ready: provider=%s model=%s", provider, model)
+            # Preload the model now (we're on the worker thread, UI stays
+            # responsive) so the user's first capture isn't a cold ~20s hit.
+            try:
+                self._backend.warmup()
+            except Exception:
+                log.debug("Backend warmup skipped/failed", exc_info=True)
         except BackendError as e:
             log.error("Backend init failed: %s", e)
             self._backend = None
@@ -119,6 +144,8 @@ class ApiWorker(QObject):
                 self._handle_manual(job)
             elif isinstance(job, _AnswerJob):
                 self._handle_answer_index(job)
+            elif isinstance(job, _FollowUpJob):
+                self._handle_followup(job)
             else:
                 self.api_error.emit(f"Unknown job type: {type(job).__name__}", -1)
         except BackendError as e:
@@ -131,7 +158,10 @@ class ApiWorker(QObject):
     def _handle_screen(self, job: _ScreenJob) -> None:
         assert self._backend is not None
         self.detection_started.emit("screen")
-        det = self._backend.detect_and_extract_question(job.png)
+        det = self._cached_detection(job.png)
+        if det is None:
+            det = self._backend.detect_and_extract_question(job.png)
+            self._store_detection(job.png, det)
         if not det.has_question or not det.questions:
             self.no_question_found.emit()
             return
@@ -160,6 +190,40 @@ class ApiWorker(QObject):
         ans = self._backend.answer_question(job.question)
         self.answer_ready.emit("screen", job.question, ans.answer, ans.explanation, job.index)
 
+    # ---------------------------------------------------------------- follow-up
+    def _handle_followup(self, job: _FollowUpJob) -> None:
+        assert self._backend is not None
+        self.detection_started.emit(job.source)
+        question = (job.text or "").strip()
+        if not question:
+            self.api_error.emit("Empty follow-up.", -1)
+            return
+        ans = self._backend.answer_question(question, context=job.context)
+        self.answer_ready.emit(job.source, question, ans.answer, ans.explanation, -1)
+
+    # ----------------------------------------------------- detection cache
+    def _cached_detection(self, png: bytes) -> object | None:
+        key = hashlib.sha256(png).hexdigest()
+        now = time.time()
+        # Evict expired entries first so the cache never grows stale.
+        expired = [k for k, (ts, _) in self._detect_cache.items() if now - ts > self._DETECT_CACHE_TTL]
+        for k in expired:
+            self._detect_cache.pop(k, None)
+        entry = self._detect_cache.get(key)
+        if entry is None:
+            return None
+        # LRU bump.
+        self._detect_cache.move_to_end(key)
+        log.info("Detection-cache hit (key=%s…)", key[:12])
+        return entry[1]
+
+    def _store_detection(self, png: bytes, det: object) -> None:
+        key = hashlib.sha256(png).hexdigest()
+        self._detect_cache[key] = (time.time(), det)
+        self._detect_cache.move_to_end(key)
+        while len(self._detect_cache) > self._DETECT_CACHE_SIZE:
+            self._detect_cache.popitem(last=False)
+
 
 def _job_index(job: object) -> int:
     if isinstance(job, _AnswerJob):
@@ -167,7 +231,7 @@ def _job_index(job: object) -> int:
     return -1
 
 
-_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "telegram_token"}
+_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "openai_api_key", "telegram_token"}
 
 
 def _diff_config(old: Config, new: Config) -> str:
@@ -191,7 +255,7 @@ class QuizAIApp(QObject):
     """Single instance that owns the lifecycle of all windows/threads."""
 
     _job_requested = Signal(object)
-    _backend_changed = Signal(str, str, str)
+    _backend_changed = Signal(str, str, str, str)  # provider, api_key, model, base_url
     _telegram_message_received = Signal(str)
 
     def __init__(self, qapp: QApplication) -> None:
@@ -207,6 +271,7 @@ class QuizAIApp(QObject):
         # ---- Windows.
         self._window = MainWindow(self._config)
         self._window.manual_question_submitted.connect(self._on_manual_question)
+        self._window.followup_submitted.connect(self._on_followup_submitted)
         self._window.capture_requested.connect(self._on_capture_requested)
         self._window.settings_changed.connect(self._on_settings_changed)
 
@@ -214,7 +279,9 @@ class QuizAIApp(QObject):
             opacity=self._config.overlay_opacity,
             width=self._config.overlay_width,
             max_height=self._config.overlay_max_height,
+            height=self._config.overlay_height,
         )
+        self._overlay.geometry_changed.connect(self._on_overlay_resized)
 
         # ---- Tray.
         self._tray = TrayIcon(self)
@@ -349,10 +416,59 @@ class QuizAIApp(QObject):
             )
             return
 
+        if self._serve_from_cache(text, source="manual"):
+            return
+
         self._busy = True
         self._window.set_busy(True)
         self._overlay.show_thinking("Thinking…")
         self._job_requested.emit(_ManualJob(text=text))
+
+    def _on_followup_submitted(self, text: str, context: str) -> None:
+        """Manual window's "Ask follow-up" submission. Always hits the API
+        (we never cache follow-ups, since the surrounding context matters)."""
+        if self._busy:
+            QMessageBox.information(
+                self._window,
+                "Busy",
+                "QuizAI is already processing a request. Please wait a moment.",
+            )
+            return
+        if not self._config.effective_api_key():
+            self._on_api_error(
+                "No API key set. Open Settings and add one — Gemini's is free.",
+                -1,
+            )
+            return
+        text = (text or "").strip()
+        if not text:
+            return
+        self._busy = True
+        self._window.set_busy(True)
+        self._overlay.show_thinking("Thinking about the follow-up…")
+        self._job_requested.emit(_FollowUpJob(text=text, context=context))
+
+    def _serve_from_cache(self, text: str, source: str) -> bool:
+        """Return True if a fresh cached answer was served and no API call is needed."""
+        if not self._config.question_cache_enabled:
+            return False
+        text = (text or "").strip()
+        if not text:
+            return False
+        hit = find_cached_answer(text, max_age_days=self._config.question_cache_days)
+        if hit is None:
+            return False
+        log.info("Question-cache hit (id=%d, source=%s)", hit.id, source)
+        self._overlay.show_single_answer(hit.question, hit.answer, hit.explanation)
+        if self._mobile.running:
+            try:
+                self._mobile.push_answer(hit.question, hit.answer, hit.explanation)
+            except Exception:
+                log.exception("Mobile companion push failed (cache)")
+        if self._config.telegram_enabled:
+            self._telegram.send_answer(hit.question, hit.answer, hit.explanation)
+        self._notifier.chime()
+        return True
 
     def _auto_capture_trigger(self) -> None:
         """Called from the scheduler's daemon thread; hops to the Qt thread."""
@@ -372,6 +488,9 @@ class QuizAIApp(QObject):
             return
         if not self._config.effective_api_key():
             self._telegram.send_text("No API key set. Open Settings on the desktop app and add one.")
+            return
+
+        if self._serve_from_cache(text, source="telegram"):
             return
 
         self._busy = True
@@ -482,6 +601,15 @@ class QuizAIApp(QObject):
         log.warning("API error: %s (index=%d)", message, index)
         self._notifier.error_sound()
 
+    def _on_overlay_resized(self, width: int, height: int) -> None:
+        """Persist the overlay size after the user drag-resizes it."""
+        if width == self._config.overlay_width and height == self._config.overlay_height:
+            return
+        self._config.overlay_width = int(width)
+        self._config.overlay_height = int(height)
+        save_config(self._config)
+        log.info("Overlay resized: %dx%d (saved)", width, height)
+
     # ----------------------------------------------------------- preferences
     def _on_settings_changed(self, new_cfg: Config) -> None:
         old_cfg = self._config
@@ -493,6 +621,7 @@ class QuizAIApp(QObject):
         self._overlay.set_opacity(new_cfg.overlay_opacity)
         self._overlay.set_width(new_cfg.overlay_width)
         self._overlay.set_max_height(new_cfg.overlay_max_height)
+        self._overlay.set_fixed_height(new_cfg.overlay_height)
 
         # Notifier toggles.
         self._notifier.set_sound_enabled(new_cfg.play_sound)
@@ -552,10 +681,16 @@ class QuizAIApp(QObject):
         key = self._config.effective_api_key()
         if not key:
             return
+        base_url = (
+            self._config.effective_base_url()
+            if self._config.provider == "openai"
+            else ""
+        )
         self._backend_changed.emit(
             self._config.provider,
             key,
             self._config.effective_model(),
+            base_url,
         )
 
     def _apply_hotkeys(self) -> None:

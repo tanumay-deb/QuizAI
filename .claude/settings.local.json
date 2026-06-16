@@ -6,7 +6,18 @@
       "Bash(git push *)",
       "PowerShell(Get-Command gh -ErrorAction SilentlyContinue)",
       "PowerShell($paths = @\\(\"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\", \"C:\\\\Program Files \\(x86\\)\\\\GitHub CLI\\\\gh.exe\", \"$env:LOCALAPPDATA\\\\Programs\\\\GitHub CLI\\\\gh.exe\", \"$env:USERPROFILE\\\\scoop\\\\apps\\\\gh\\\\current\\\\bin\\\\gh.exe\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { Write-Output \"FOUND: $p\" } }; Get-Command gh -ErrorAction SilentlyContinue | Select-Object Source; where.exe gh 2>$null)",
-      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); & \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" --version 2>&1; & \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth status 2>&1)"
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); & \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" --version 2>&1; & \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth status 2>&1)",
+      "Bash(python -m pytest -q)",
+      "Bash(python -c \"import ast,sys; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['quizai/app.py','quizai/main_window.py','quizai/history.py','quizai/config.py','quizai/screen_capture.py','quizai/telegram_notifier.py','quizai/backends/base.py','quizai/backends/gemini_backend.py','quizai/backends/anthropic_backend.py','tests/test_api_worker.py']]; print\\('syntax ok'\\)\")",
+      "Bash(python -c \"from quizai.history import find_cached_answer, question_hash, list_entries; from quizai.backends.base import build_followup_prompt; from quizai.telegram_notifier import _parse_chat_ids; from quizai.screen_capture import list_monitors, MonitorInfo; print\\('imports ok'\\); print\\(question_hash\\('Hi there'\\)\\); print\\(_parse_chat_ids\\('1,2 3, 4'\\)\\); print\\(build_followup_prompt\\('Q: foo\\\\nA: bar', 'why?'\\)[:80]\\)\")",
+      "Bash(findstr /n \"telegram_token telegram_chat_id\")",
+      "Bash(findstr /n /c:\"telegram_token\" /c:\"telegram_chat_id\")",
+      "Bash(git tag *)",
+      "Bash(gh release create v1.1.0 --title 'QuizAI Assistant v1.1.0' --target Telegram --notes ' *)",
+      "Bash(python -c ' *)",
+      "Bash(gh release create v1.2.0 --title 'QuizAI Assistant v1.2.0 — Ollama local LLMs' --target Telegram --notes ' *)",
+      "Bash(python -m pip install -e .)",
+      "Bash(python -c \"import mss, PySide6; from quizai.app import run; print\\('imports OK'\\)\")"
     ]
   }
 }

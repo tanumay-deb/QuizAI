@@ -25,6 +25,7 @@ from quizai.backends.base import (
     Backend,
     BackendError,
     DetectionResult,
+    build_followup_prompt,
     parse_answer_text,
     parse_detection_json,
 )
@@ -83,13 +84,15 @@ class GeminiBackend(Backend):
         return parse_detection_json(_extract_text(response))
 
     # ----------------------------------------------------------------- answer
-    def answer_question(self, question: str) -> AnswerResult:
+    def answer_question(self, question: str, context: str | None = None) -> AnswerResult:
         from google.genai import types
+
+        user_text = build_followup_prompt(context, question) if context else question
 
         def _call():
             return self._client.models.generate_content(
                 model=self._model,
-                contents=[question],
+                contents=[user_text],
                 config=types.GenerateContentConfig(
                     system_instruction=ANSWER_SYSTEM,
                     max_output_tokens=2048,

@@ -11,6 +11,7 @@ from quizai.backends.base import (
     Backend,
     BackendError,
     DetectionResult,
+    build_followup_prompt,
     parse_answer_text,
     parse_detection_json,
 )
@@ -68,13 +69,14 @@ class AnthropicBackend(Backend):
         return parse_detection_json(_extract_text(msg))
 
     # ----------------------------------------------------------------- answer
-    def answer_question(self, question: str) -> AnswerResult:
+    def answer_question(self, question: str, context: str | None = None) -> AnswerResult:
+        user_text = build_followup_prompt(context, question) if context else question
         try:
             msg = self._client.messages.create(
                 model=self._model,
                 max_tokens=2048,
                 system=ANSWER_SYSTEM,
-                messages=[{"role": "user", "content": question}],
+                messages=[{"role": "user", "content": user_text}],
             )
         except Exception as e:
             raise BackendError(str(e)) from e

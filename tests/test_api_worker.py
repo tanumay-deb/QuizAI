@@ -23,12 +23,13 @@ class _FakeBackend:
         qs = ["Q1", "Q2", "Q3"] if self.multi else ["Q1"]
         return DetectionResult(has_question=True, questions=qs)
 
-    def answer_question(self, q):
+    def answer_question(self, q, context=None):
         from quizai.backends.base import AnswerResult, BackendError
 
         if self.raise_on_answer:
             raise BackendError("simulated failure")
-        return AnswerResult(answer=f"A for {q}", explanation=f"because {q}")
+        tag = "followup " if context else ""
+        return AnswerResult(answer=f"A for {tag}{q}", explanation=f"because {q}")
 
 
 def test_no_backend_emits_error(qapp):

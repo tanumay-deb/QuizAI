@@ -48,32 +48,126 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - ✍️ **Manual input** — type any question into the main window for an instant answer
 - 💾 **Searchable history** — every Q&A saved locally in SQLite, never sent anywhere except the AI provider
 - 🔔 **Sound + desktop notifications** — chime on success, error tone on failure (toggleable)
-- 🧩 **Pluggable AI providers** — Google Gemini (free tier) and Anthropic Claude out of the box
+- 🧩 **Pluggable AI providers** — Google Gemini (free tier), Anthropic Claude, **Ollama** for fully-local private models (Qwen2.5-VL, MiniCPM-V, Llama 3.2 Vision, Gemma 3, …), and any **OpenAI-compatible** endpoint (OpenAI, Groq, OpenRouter, LM Studio)
 - 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
 - 🤖 **Telegram companion** — two-way chat bot: receive answers instantly on Telegram and ask follow-up questions directly from your phone
 
 ## Requirements
 
-- Python 3.10 or newer
-- An API key — **free Gemini** ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), no card required) or paid Claude
-- Windows, macOS, or Linux
+- **Python 3.10 or newer**
+- An **AI key** — a **free Gemini key** works great ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), no credit card). Claude (paid), Ollama (free, runs on your own PC), and any OpenAI-compatible endpoint (OpenAI/Groq/OpenRouter) are also supported.
+- **Windows, macOS, or Linux**
 
-## Installation
+## Getting started (step by step)
+
+New to Python or the command line? Follow these in order — copy/paste one command at a time and you'll be running in a few minutes.
+
+### 1. Install Python
+
+QuizAI needs **Python 3.10 or newer**.
+
+| OS | How |
+|---|---|
+| **Windows** | Download from [python.org/downloads](https://www.python.org/downloads/). In the installer, **tick “Add python.exe to PATH”** before clicking Install. |
+| **macOS** | Download from [python.org/downloads](https://www.python.org/downloads/), or run `brew install python` if you have [Homebrew](https://brew.sh). |
+| **Linux** | Usually preinstalled. If not: `sudo apt install python3 python3-venv python3-pip` |
+
+Check it worked — open a terminal (see next step) and run:
+
+```bash
+python --version
+```
+
+You should see `Python 3.10.x` or higher. If you get “command not found”, try `python3 --version` instead, and use `python3` everywhere below.
+
+### 2. Open a terminal
+
+- **Windows** — press `Start`, type **PowerShell**, press Enter.
+- **macOS** — press `Cmd + Space`, type **Terminal**, press Enter.
+- **Linux** — press `Ctrl + Alt + T`.
+
+This is where you type the commands below.
+
+### 3. Download QuizAI
+
+**If you have [Git](https://git-scm.com):**
 
 ```bash
 git clone https://github.com/tanumay-deb/quizai-assistant
 cd quizai-assistant
+```
 
+**If you don't have Git** (easiest for newcomers):
+
+1. Go to [the GitHub page](https://github.com/tanumay-deb/quizai-assistant).
+2. Click the green **Code** button → **Download ZIP**.
+3. Extract the ZIP somewhere you'll remember (e.g. your Desktop).
+4. In your terminal, move into the extracted folder:
+   ```bash
+   # example — change the path to where you extracted it
+   cd Desktop/quizai-assistant-main
+   ```
+
+### 4. Create a virtual environment
+
+This keeps QuizAI's dependencies separate from the rest of your system. Run once:
+
+```bash
 python -m venv venv
-# Windows
-venv\Scripts\activate
+```
+
+Then **activate** it (do this every time you open a new terminal to run QuizAI):
+
+```bash
+# Windows (PowerShell)
+venv\Scripts\Activate.ps1
+
 # macOS / Linux
 source venv/bin/activate
+```
 
+Once active, your prompt shows `(venv)` at the start.
+
+> **Windows note:** if activation fails with a “running scripts is disabled” error, run this once, then try activating again:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
+
+### 5. Install QuizAI and its dependencies
+
+```bash
 pip install -e .
 ```
 
-If you don't plan to use Claude, edit `pyproject.toml` to remove the `anthropic` dependency line — Gemini-only is significantly smaller.
+This pulls in everything QuizAI needs — `mss` (screenshots), `PySide6` (the window), and the rest. **This is the step that has to finish before the app will run.** If you skip it, launching the app fails with `ModuleNotFoundError: No module named 'mss'`.
+
+> Don't need Claude? Delete the `anthropic` line from `pyproject.toml` before this step — the install will be noticeably smaller.
+
+### 6. Get a free Gemini key
+
+1. Visit [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with any Google account.
+2. Click **Create API key** → copy it.
+3. You'll paste it when the app first launches (next step). No key handy? You can also use **Ollama** for fully-local models — see [Local & private (Ollama)](#local--private-ollama).
+
+(Optional) Instead of pasting in the app, set it as an environment variable:
+
+```bash
+# macOS / Linux
+export GEMINI_API_KEY=AIza...
+
+# Windows (PowerShell)
+$env:GEMINI_API_KEY = "AIza..."
+```
+
+### 7. Run it
+
+```bash
+python -m quizai
+```
+
+The app starts **minimized to your system tray** (near the clock). Right-click the tray icon for the menu, or press `Ctrl + Shift + Q` to capture and analyse the screen. On first launch it'll prompt for your Gemini key if you didn't set the env var.
+
+> After installing, you can also just type `quizai` to launch it (with the venv active).
 
 ### Platform-specific setup
 
@@ -83,33 +177,47 @@ If you don't plan to use Claude, edit `pyproject.toml` to remove the `anthropic`
 | **macOS** | First run prompts for *Screen Recording* and *Accessibility* permissions — grant both |
 | **Linux** | `sudo apt install scrot libxcb-cursor0 libpulse0` (covers capture, Qt platform, audio) |
 
-See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) if something doesn't work.
+### Common first-run problems
 
-## Setup — free Gemini key
+| What you see | Fix |
+|---|---|
+| `ModuleNotFoundError: No module named 'mss'` (or `PySide6`, etc.) | You skipped step 5 or aren't in the venv. Activate the venv (step 4) and run `pip install -e .` again. |
+| `python` not found | Use `python3` instead, or reinstall Python with **Add to PATH** ticked (Windows). |
+| PowerShell: *“running scripts is disabled”* | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`, then activate again (step 4). |
+| App launches but says no API key | Paste your Gemini key when prompted, or set `GEMINI_API_KEY` (step 6). |
+| Nothing visible after launch | It's in the **system tray**, not a normal window. Look near the clock and right-click the icon. |
 
-1. Visit [aistudio.google.com/apikey](https://aistudio.google.com/apikey) and sign in with any Google account
-2. Click **Create API key** → copy it
-3. Run `python -m quizai` — it'll prompt for the key on first launch
+Still stuck? See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
-Or set it as an env var:
+## Local & private (Ollama)
 
-```bash
-# macOS / Linux
-export GEMINI_API_KEY=AIza...
+No API key, no cloud — run a vision model entirely on your own machine.
 
-# Windows PowerShell
-$env:GEMINI_API_KEY = "AIza..."
-```
+1. Install [Ollama](https://ollama.com/download) and start it (it runs a local server at `http://localhost:11434`).
+2. Pull a vision model, e.g.:
+   ```bash
+   ollama pull qwen2.5vl
+   ```
+3. In QuizAI, open **Settings**, set the provider to **Ollama**, and pick your model. Leave the host blank to use the default local server.
 
-## Running
+Everything stays on your PC — nothing is sent to any cloud provider.
 
-```bash
-python -m quizai
-# or, after installing:
-quizai
-```
+> **Speed note:** Ollama runs the model's *vision encoder* on the **CPU**, so reading a screenshot takes ~15–20 s even with the LLM on your GPU. That's a llama.cpp limitation, not your hardware. For faster vision, use a cloud provider (Gemini/Claude/OpenAI-compatible) below.
 
-The app starts minimized to the tray. Right-click the tray icon for the menu.
+## OpenAI-compatible providers (OpenAI · Groq · OpenRouter · LM Studio)
+
+QuizAI can talk to **any** server that speaks the OpenAI Chat Completions API. This unlocks both fast local inference and cloud providers beyond Gemini/Claude.
+
+Open **Settings**, set the provider to **OpenAI-compatible**, fill in the **Base URL** + **API key**, and pick a **vision-capable** model:
+
+| Service | Base URL | API key | Example model |
+|---|---|---|---|
+| **OpenAI** | `https://api.openai.com/v1` | your key | `gpt-4o-mini` |
+| **Groq** | `https://api.groq.com/openai/v1` | your key | a Llama-vision model |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | your key | any vision model |
+| **LM Studio** | `http://localhost:1234/v1` | *(leave blank)* | a loaded vision model |
+
+Self-hosted servers (e.g. LM Studio) may ignore the key, so leave it blank. You can also set `OPENAI_API_KEY` / `OPENAI_BASE_URL` as environment variables instead of using the UI.
 
 ## Hotkeys
 
@@ -212,6 +320,8 @@ quizai-assistant/
 │       ├── base.py          # Backend interface + parsers
 │       ├── gemini_backend.py
 │       ├── anthropic_backend.py
+│       ├── ollama_backend.py    # local models (vision encoder on CPU)
+│       ├── openai_backend.py    # OpenAI-compatible (OpenAI/Groq/OpenRouter)
 │       └── __init__.py      # factory + provider registry
 ├── tests/                   # pytest suite (67 tests)
 ├── docs/

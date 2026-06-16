@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizeGrip,
     QVBoxLayout,
     QWidget,
 )
@@ -114,17 +115,35 @@ class OverlayWindow(QWidget):
 
     dismissed = Signal()
     # Fired when the user navigates to a question that hasn't been answered (legacy paginator support, mostly unused now since we queue all at once).
-    question_answer_requested = Signal(int) 
+    question_answer_requested = Signal(int)
+    # Emitted (width, height) after the user drag-resizes the overlay so the
+    # app can persist the new geometry. Debounced until the drag settles.
+    geometry_changed = Signal(int, int)
 
-    def __init__(self, opacity: float = 0.92, width: int = 480, max_height: int = 600):
+    def __init__(
+        self,
+        opacity: float = 0.92,
+        width: int = 480,
+        max_height: int = 600,
+        height: int = 0,
+    ):
         super().__init__()
         self._drag_offset: QPoint | None = None
         self._opacity = max(0.4, min(1.0, opacity))
-        self._target_width = width
+        self._target_width = max(280, int(width))
         self._max_height = max_height
+        # >0 means the user picked an exact height by resizing; auto-fit is off.
+        self._fixed_height = max(0, int(height))
+        # The last size we set programmatically — used to tell our own resizes
+        # apart from user drags in resizeEvent.
+        self._last_set_size = (0, 0)
         self._auto_hide_timer = QTimer(self)
         self._auto_hide_timer.setSingleShot(True)
         self._auto_hide_timer.timeout.connect(self._on_auto_hide)
+        # Debounce geometry saves so a drag emits once, not per pixel.
+        self._geo_save_timer = QTimer(self)
+        self._geo_save_timer.setSingleShot(True)
+        self._geo_save_timer.timeout.connect(self._emit_geometry)
         self._pinned = False
 
         # State
@@ -187,8 +206,19 @@ class OverlayWindow(QWidget):
         self._scroll.setWidget(self._body)
         root_layout.addWidget(self._scroll, 1)
 
-        self.setFixedWidth(self._target_width)
-        self.resize(self._target_width, 160)
+        # Bottom-right drag handle to resize the overlay (frameless window).
+        grip_row = QHBoxLayout()
+        grip_row.setContentsMargins(0, 0, 0, 0)
+        grip_row.addStretch(1)
+        self._size_grip = QSizeGrip(self._root)
+        self._size_grip.setToolTip("Drag to resize")
+        grip_row.addWidget(self._size_grip, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        root_layout.addLayout(grip_row)
+
+        # Resizable instead of fixed-width so the grip works in both axes.
+        self.setMinimumWidth(280)
+        self.setMinimumHeight(140)
+        self._apply_size(self._target_width, self._fixed_height or 160)
 
 
     def _apply_window_flags(self) -> None:
@@ -216,10 +246,15 @@ class OverlayWindow(QWidget):
 
     def set_width(self, width: int) -> None:
         self._target_width = max(280, int(width))
-        self.setFixedWidth(self._target_width)
+        self._fit_height()
 
     def set_max_height(self, h: int) -> None:
         self._max_height = max(200, int(h))
+        self._fit_height()
+
+    def set_fixed_height(self, h: int) -> None:
+        """Set a remembered exact height (0 turns auto-fit back on)."""
+        self._fixed_height = max(0, int(h))
         self._fit_height()
 
     def show_thinking(self, message: str = "Analyzing screenshot…") -> None:
@@ -343,10 +378,33 @@ class OverlayWindow(QWidget):
         self.raise_()
 
     def _fit_height(self) -> None:
-        self._scroll.widget().adjustSize()
-        ideal = self._scroll.widget().sizeHint().height() + 70
-        h = max(140, min(self._max_height, ideal))
-        self.resize(self._target_width, h)
+        if self._fixed_height > 0:
+            # User picked an exact height — honour it; content scrolls.
+            h = max(140, self._fixed_height)
+        else:
+            self._scroll.widget().adjustSize()
+            ideal = self._scroll.widget().sizeHint().height() + 70
+            h = max(140, min(self._max_height, ideal))
+        self._apply_size(self._target_width, h)
+
+    def _apply_size(self, w: int, h: int) -> None:
+        """Resize the window, recording the intended size so resizeEvent can
+        distinguish our own resizes from a user drag on the size grip."""
+        self._last_set_size = (int(w), int(h))
+        self.resize(int(w), int(h))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().resizeEvent(event)
+        # Ignore resizes we triggered ourselves (auto-fit, width/opacity apply).
+        if (self.width(), self.height()) == self._last_set_size:
+            return
+        # A real user drag: remember the new size and switch to fixed-height.
+        self._target_width = self.width()
+        self._fixed_height = self.height()
+        self._geo_save_timer.start(500)
+
+    def _emit_geometry(self) -> None:
+        self.geometry_changed.emit(self._target_width, self._fixed_height)
 
     def _center_top_right(self) -> None:
         screen = QGuiApplication.primaryScreen()
