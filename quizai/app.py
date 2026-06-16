@@ -36,13 +36,13 @@ from quizai.history import add_entry, find_cached_answer, init_db
 from quizai.hotkey_manager import HotkeyManager
 from quizai.logger import get_logger, setup_logging
 from quizai.main_window import MainWindow
+from quizai.mobile_server import MobileServer
 from quizai.notifier import Notifier
 from quizai.overlay import OverlayWindow
-from quizai.mobile_server import MobileServer
 from quizai.scheduler import AutoCaptureScheduler
 from quizai.screen_capture import capture as capture_screen
-from quizai.tray import TrayIcon
 from quizai.telegram_notifier import TelegramNotifier
+from quizai.tray import TrayIcon
 
 log = get_logger(__name__)
 
@@ -497,9 +497,8 @@ class QuizAIApp(QObject):
 
         # ---- Mobile companion server.
         self._mobile = MobileServer(self._config.mobile_server_port)
-        if self._config.mobile_server_enabled:
-            if self._mobile.start():
-                self._window.set_mobile_url(self._mobile.local_url())
+        if self._config.mobile_server_enabled and self._mobile.start():
+            self._window.set_mobile_url(self._mobile.local_url())
 
         # ---- Telegram companion.
         self._telegram_message_received.connect(self._handle_telegram_message_in_qt, Qt.ConnectionType.QueuedConnection)
