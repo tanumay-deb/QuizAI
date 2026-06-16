@@ -39,8 +39,10 @@ _VISUAL_NOUN = re.compile(
     re.IGNORECASE,
 )
 
-# Rendered-math glyphs OCR commonly corrupts (superscripts, roots, integrals…).
-_MATH_GLYPHS = "√∫∑∏πθ≈≤≥≠±×÷°⅓⅔⅛⅜⅝½¼¾²³⁰¹⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉"
+# Rendered-math glyphs OCR commonly *corrupts* — superscripts/subscripts (2³→23),
+# roots, integrals, sums, vulgar fractions. NOT included: × ÷ − + ≈ ≤ ≥ ≠ ± ° π θ,
+# which OCR reads fine (so simple arithmetic like "5 × 6" stays on the text path).
+_MATH_GLYPHS = "√∫∑∏⅓⅔⅛⅜⅝½¼¾²³⁰¹⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉"
 _MATH_GLYPH_RE = re.compile(f"[{re.escape(_MATH_GLYPHS)}]")
 
 

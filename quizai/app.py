@@ -267,24 +267,41 @@ class ApiWorker(QObject):
             if not items:
                 info["reason"] = "no questions extracted from OCR text"
                 return False
-            if any(i.requires_visual_context for i in items):
-                info.update(questions=len(items), reason="a question needs visual context")
+            # Only fall back to vision when NOTHING is answerable from text. If some
+            # questions are answerable, show them and mark the visual ones — don't
+            # discard the whole page because one question references an image.
+            answerable = [i for i in items if not i.requires_visual_context and i.answer]
+            if not answerable:
+                info.update(questions=len(items), reason="all questions need visual context")
                 return False
             self._store_ocr(key, items)
             self._emit_ocr_items(items)
-            info.update(route="text", questions=len(items), reason="answered from OCR text")
+            n_visual = len(items) - len(answerable)
+            reason = "answered from OCR text"
+            if n_visual:
+                reason += f" ({n_visual} need image)"
+            info.update(route="text", questions=len(items), reason=reason)
             return True
         except Exception as exc:
             log.warning("OCR fast path failed (%s); falling back to vision", exc)
             info["reason"] = f"ocr error: {exc}"
             return False
 
+    _NEEDS_IMAGE = "(needs image — re-capture just this question)"
+
     def _emit_ocr_items(self, items: list) -> None:
-        """Feed OCR-derived Q&A through the existing questions/answer signals."""
-        self._ocr_answers = {i.question: i.answer for i in items}
+        """Feed OCR-derived Q&A through the existing questions/answer signals.
+
+        Text-answerable questions show their answer; questions flagged as needing
+        visual context show a placeholder (per-question vision escalation is Phase 3)."""
+
+        def ans(i) -> str:
+            return i.answer if (not i.requires_visual_context and i.answer) else self._NEEDS_IMAGE
+
+        self._ocr_answers = {i.question: ans(i) for i in items}
         self.questions_extracted.emit([i.question for i in items])
         first = items[0]
-        self.answer_ready.emit("screen", first.question, first.answer, "", 0)
+        self.answer_ready.emit("screen", first.question, ans(first), "", 0)
 
     def _log_capture(self, latency: float) -> None:
         info = self._route_info or {}

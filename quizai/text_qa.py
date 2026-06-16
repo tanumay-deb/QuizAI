@@ -25,11 +25,14 @@ _TIMEOUT_S = 120.0
 
 _SYSTEM = (
     "You are given raw OCR text from a quiz/exam screenshot. Extract EVERY question "
-    "verbatim, including its answer choices. For each question decide whether answering "
-    "REQUIRES seeing an image/graph/figure/diagram/table that the OCR text cannot convey. "
-    "If it does, set requires_visual_context=true and answer=null. Otherwise answer it "
-    "concisely (for multiple choice give the letter AND the option text, e.g. 'B. 12'; "
-    "for numeric give the value). Do NOT include long explanations.\n"
+    "verbatim, including its answer choices, and answer each.\n"
+    "Set requires_visual_context=true (and answer=null) ONLY when answering truly needs "
+    "a picture whose information is NOT in the text — e.g. 'which graph/figure shows…', a "
+    "diagram, a photo, or a chart you cannot read from the text. If a table's rows/values "
+    "appear in the OCR text, ANSWER FROM THAT TEXT — do not flag it as visual. Simple "
+    "arithmetic and word problems are always answerable.\n"
+    "Answer concisely: for multiple choice give the letter AND the option text (e.g. "
+    "'B. 12'); for numeric give the value. Do NOT include long explanations.\n"
     'Reply ONLY with JSON: {"questions":[{"question":str,"requires_visual_context":bool,'
     '"answer":str|null,"confidence":number}]}'
 )
