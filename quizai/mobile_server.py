@@ -10,13 +10,13 @@ whenever a new answer arrives.
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import json
 import queue
 import socket
 import threading
 import uuid
-from typing import Optional
 
 from quizai.logger import get_logger
 
@@ -329,7 +329,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 class _ThreadedServer(http.server.ThreadingHTTPServer):
     # ThreadingHTTPServer already sets allow_reuse_address and daemon_threads.
 
-    def __init__(self, addr: tuple, handler, mobile: "MobileServer") -> None:
+    def __init__(self, addr: tuple, handler, mobile: MobileServer) -> None:
         super().__init__(addr, handler)
         self._mobile = mobile
 
@@ -342,12 +342,12 @@ class MobileServer:
         self._port = port
         self._clients: list[queue.Queue[str]] = []
         self._lock = threading.Lock()
-        self._qa_list: list[dict] = []   # full history; each item is a dict
-        self._counter: int = 0           # monotonic id within this session
+        self._qa_list: list[dict] = []  # full history; each item is a dict
+        self._counter: int = 0  # monotonic id within this session
         # Prefix every id with a per-session token so a stale browser tab
         # from a previous run can't dedupe ids from a fresh server.
         self._session: str = uuid.uuid4().hex[:8]
-        self._server: Optional[_ThreadedServer] = None
+        self._server: _ThreadedServer | None = None
 
     # ----------------------------------------------------------------- lifecycle
     def start(self) -> bool:
@@ -365,10 +365,8 @@ class MobileServer:
 
     def stop(self) -> None:
         if self._server is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._server.shutdown()
-            except Exception:
-                pass
             self._server = None
         with self._lock:
             self._clients.clear()
@@ -410,7 +408,11 @@ class MobileServer:
         with self._lock:
             self._clients.append(q)
             history = [json.dumps(e, ensure_ascii=False) for e in self._qa_list]
-            log.info("Mobile: SSE client connected (total=%d, history=%d items)", len(self._clients), len(history))
+            log.info(
+                "Mobile: SSE client connected (total=%d, history=%d items)",
+                len(self._clients),
+                len(history),
+            )
             return history
 
     def _deregister_client(self, q: queue.Queue[str]) -> None:

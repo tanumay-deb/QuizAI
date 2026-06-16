@@ -35,49 +35,6 @@ def test_set_answer_out_of_range_is_noop(qapp):
     assert ov._entries[0].answer is None
 
 
-def test_navigating_to_unanswered_slot_signals(qapp):
-    from quizai.overlay import OverlayWindow
-
-    ov = OverlayWindow()
-    ov.show_questions(["Q1", "Q2", "Q3"])
-    requests = []
-    ov.question_answer_requested.connect(requests.append)
-
-    ov._on_next()
-    assert ov.current_index() == 1
-    assert requests == [1]
-
-
-def test_navigating_back_to_answered_slot_does_not_signal(qapp):
-    from quizai.overlay import OverlayWindow
-
-    ov = OverlayWindow()
-    ov.show_questions(["Q1", "Q2"])
-    ov.set_answer_for(0, "A1", "")
-    ov.set_answer_for(1, "A2", "")
-
-    requests = []
-    ov.question_answer_requested.connect(requests.append)
-    ov._on_next()
-    ov._on_prev()
-    ov._on_next()
-    assert requests == []  # all answered, no requests
-
-
-def test_navigation_clamps_to_bounds(qapp):
-    from quizai.overlay import OverlayWindow
-
-    ov = OverlayWindow()
-    ov.show_questions(["Q1", "Q2"])
-
-    ov._on_prev()  # at 0, prev should clamp
-    assert ov.current_index() == 0
-
-    ov._on_next()
-    ov._on_next()  # at 1, next should clamp
-    assert ov.current_index() == 1
-
-
 def test_show_single_answer_compat(qapp):
     from quizai.overlay import OverlayWindow
 

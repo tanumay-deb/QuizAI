@@ -36,13 +36,13 @@ from quizai.history import add_entry, find_cached_answer, init_db
 from quizai.hotkey_manager import HotkeyManager
 from quizai.logger import get_logger, setup_logging
 from quizai.main_window import MainWindow
+from quizai.mobile_server import MobileServer
 from quizai.notifier import Notifier
 from quizai.overlay import OverlayWindow
-from quizai.mobile_server import MobileServer
 from quizai.scheduler import AutoCaptureScheduler
 from quizai.screen_capture import capture as capture_screen
-from quizai.tray import TrayIcon
 from quizai.telegram_notifier import TelegramNotifier
+from quizai.tray import TrayIcon
 
 log = get_logger(__name__)
 
@@ -206,7 +206,9 @@ class ApiWorker(QObject):
         key = hashlib.sha256(png).hexdigest()
         now = time.time()
         # Evict expired entries first so the cache never grows stale.
-        expired = [k for k, (ts, _) in self._detect_cache.items() if now - ts > self._DETECT_CACHE_TTL]
+        expired = [
+            k for k, (ts, _) in self._detect_cache.items() if now - ts > self._DETECT_CACHE_TTL
+        ]
         for k in expired:
             self._detect_cache.pop(k, None)
         entry = self._detect_cache.get(key)
@@ -324,13 +326,16 @@ class QuizAIApp(QObject):
 
         # ---- Mobile companion server.
         self._mobile = MobileServer(self._config.mobile_server_port)
-        if self._config.mobile_server_enabled:
-            if self._mobile.start():
-                self._window.set_mobile_url(self._mobile.local_url())
+        if self._config.mobile_server_enabled and self._mobile.start():
+            self._window.set_mobile_url(self._mobile.local_url())
 
         # ---- Telegram companion.
-        self._telegram_message_received.connect(self._handle_telegram_message_in_qt, Qt.ConnectionType.QueuedConnection)
-        self._telegram = TelegramNotifier(self._config.telegram_token, self._config.telegram_chat_id)
+        self._telegram_message_received.connect(
+            self._handle_telegram_message_in_qt, Qt.ConnectionType.QueuedConnection
+        )
+        self._telegram = TelegramNotifier(
+            self._config.telegram_token, self._config.telegram_chat_id
+        )
         if self._config.telegram_enabled:
             self._telegram.start_polling(self._on_telegram_message)
 
@@ -487,7 +492,9 @@ class QuizAIApp(QObject):
             self._telegram.send_text("I'm currently busy processing another request.")
             return
         if not self._config.effective_api_key():
-            self._telegram.send_text("No API key set. Open Settings on the desktop app and add one.")
+            self._telegram.send_text(
+                "No API key set. Open Settings on the desktop app and add one."
+            )
             return
 
         if self._serve_from_cache(text, source="telegram"):
@@ -661,9 +668,9 @@ class QuizAIApp(QObject):
                 self._window.set_mobile_url("")
 
         telegram_changed = (
-            new_cfg.telegram_enabled != old_cfg.telegram_enabled or
-            new_cfg.telegram_token != old_cfg.telegram_token or
-            new_cfg.telegram_chat_id != old_cfg.telegram_chat_id
+            new_cfg.telegram_enabled != old_cfg.telegram_enabled
+            or new_cfg.telegram_token != old_cfg.telegram_token
+            or new_cfg.telegram_chat_id != old_cfg.telegram_chat_id
         )
         if telegram_changed:
             log.info(
@@ -681,11 +688,7 @@ class QuizAIApp(QObject):
         key = self._config.effective_api_key()
         if not key:
             return
-        base_url = (
-            self._config.effective_base_url()
-            if self._config.provider == "openai"
-            else ""
-        )
+        base_url = self._config.effective_base_url() if self._config.provider == "openai" else ""
         self._backend_changed.emit(
             self._config.provider,
             key,

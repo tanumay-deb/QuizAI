@@ -16,7 +16,8 @@ the user.
 from __future__ import annotations
 
 import time
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from quizai.backends.base import (
     ANSWER_SYSTEM,
@@ -50,8 +51,7 @@ class GeminiBackend(Backend):
             from google.genai import types  # noqa: F401  (used in methods)
         except ImportError as e:
             raise BackendError(
-                "The 'google-genai' package is not installed. "
-                "Run: pip install google-genai"
+                "The 'google-genai' package is not installed. Run: pip install google-genai"
             ) from e
         try:
             self._client = genai.Client(api_key=api_key)
@@ -190,18 +190,10 @@ def _pretty_gemini_error(e: Exception) -> str:
     text = str(e) or e.__class__.__name__
     low = text.lower()
 
-    if (
-        "api key" in low
-        or "api_key" in low
-        or "permission" in low
-        or "unauthorized" in low
-    ):
+    if "api key" in low or "api_key" in low or "permission" in low or "unauthorized" in low:
         return "Invalid Gemini API key. Get a free one at aistudio.google.com/apikey."
     if "quota" in low or "resource_exhausted" in low or "429" in text:
-        return (
-            "Gemini free-tier quota hit. Try again in a minute, or upgrade "
-            "in AI Studio."
-        )
+        return "Gemini free-tier quota hit. Try again in a minute, or upgrade in AI Studio."
     if "unavailable" in low or "503" in text or "overloaded" in low:
         return (
             "Gemini is overloaded right now (even after retries). Try again "

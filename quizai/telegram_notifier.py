@@ -19,7 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Callable
+from collections.abc import Callable
 
 from quizai.logger import get_logger
 
@@ -141,28 +141,32 @@ class TelegramNotifier:
     def _poll_loop(self) -> None:
         while self._running:
             try:
-                url = _API_URL.format(token=self._token, method=f"getUpdates?offset={self._offset}&timeout=30")
+                url = _API_URL.format(
+                    token=self._token, method=f"getUpdates?offset={self._offset}&timeout=30"
+                )
                 req = urllib.request.Request(url, method="GET")
                 # timeout must be slightly larger than long-polling timeout
                 with urllib.request.urlopen(req, timeout=35) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
-                    
+
                 if not data.get("ok"):
                     log.error("Telegram getUpdates error: %s", data)
                     time.sleep(5)
                     continue
-                    
+
                 for update in data.get("result", []):
                     self._offset = update["update_id"] + 1
                     message = update.get("message")
                     if not message:
                         continue
-                        
+
                     chat_id = str(message.get("chat", {}).get("id", ""))
                     if chat_id not in self._chat_ids:
-                        log.warning("Telegram: ignored message from unauthorized chat_id: %s", chat_id)
+                        log.warning(
+                            "Telegram: ignored message from unauthorized chat_id: %s", chat_id
+                        )
                         continue
-                        
+
                     text = message.get("text", "").strip()
                     if text and self._callback:
                         log.info("Telegram: received message from user")
@@ -170,10 +174,10 @@ class TelegramNotifier:
                             self._callback(text)
                         except Exception:
                             log.exception("Telegram: callback failed")
-                            
+
             except urllib.error.URLError as e:
                 # This could be a timeout exception, which is perfectly normal for long-polling.
-                if hasattr(e, 'reason') and 'time' in str(e.reason).lower():
+                if hasattr(e, "reason") and "time" in str(e.reason).lower():
                     pass
                 else:
                     log.debug("Telegram polling network error: %s", e)

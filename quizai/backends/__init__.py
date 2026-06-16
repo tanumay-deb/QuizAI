@@ -22,9 +22,7 @@ from quizai.backends.base import (
 )
 
 
-def create_backend(
-    provider: str, api_key: str, model: str, base_url: str | None = None
-) -> Backend:
+def create_backend(provider: str, api_key: str, model: str, base_url: str | None = None) -> Backend:
     """Build a backend by name. Raises ValueError if the name is unknown.
 
     `base_url` is only used by the OpenAI-compatible provider (ignored otherwise).
@@ -75,12 +73,12 @@ PROVIDER_INFO: dict[str, dict] = {
     "ollama": {
         "label": "Ollama (local, private, free)",
         "models": [
-            "qwen2.5vl:7b",          # ⭐ best on 8 GB VRAM
+            "qwen2.5vl:7b",  # ⭐ best on 8 GB VRAM
             "minicpm-v:8b",
             "llama3.2-vision:11b",
             "gemma3:4b",
             "qwen2.5vl:3b",
-            "qwen2.5vl:32b",         # needs 24 GB+ VRAM
+            "qwen2.5vl:32b",  # needs 24 GB+ VRAM
         ],
         "key_help": (
             "Install Ollama from https://ollama.com/download, then run "

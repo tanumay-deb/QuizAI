@@ -141,10 +141,7 @@ def _pretty_http_error(code: int, body: str, model: str) -> str:
     if code == 404 and "model" in low:
         return f"Model '{model}' not found on this server (HTTP 404). Check the model name."
     if code == 400 and ("image" in low or "vision" in low or "multimodal" in low):
-        return (
-            f"Model '{model}' may not support images (HTTP 400). "
-            "Pick a vision-capable model."
-        )
+        return f"Model '{model}' may not support images (HTTP 400). Pick a vision-capable model."
     if code == 429:
         return "Rate limited (HTTP 429). Slow down or check your quota."
     if code in (502, 503, 504):

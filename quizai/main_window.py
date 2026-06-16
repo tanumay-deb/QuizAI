@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -31,7 +32,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
-    QFrame,
     QSpinBox,
     QSplitter,
     QTextBrowser,
@@ -202,7 +202,7 @@ class MainWindow(QWidget):
         followup_row = QHBoxLayout()
         self._followup_input = QLineEdit()
         self._followup_input.setPlaceholderText(
-            "Ask a follow-up about this entry (e.g. \"explain step 3 more\")…"
+            'Ask a follow-up about this entry (e.g. "explain step 3 more")…'
         )
         self._followup_input.returnPressed.connect(self._on_followup_clicked)
         followup_row.addWidget(self._followup_input, 1)
@@ -288,9 +288,7 @@ class MainWindow(QWidget):
         if not text:
             return
         item = self._history_list.currentItem()
-        entry: HistoryEntry | None = (
-            item.data(Qt.ItemDataRole.UserRole + 1) if item else None
-        )
+        entry: HistoryEntry | None = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
         if entry is None:
             QMessageBox.information(
                 self,
@@ -299,11 +297,7 @@ class MainWindow(QWidget):
                 "will be sent as context for the follow-up.",
             )
             return
-        context = (
-            f"Q: {entry.question}\n"
-            f"A: {entry.answer}\n"
-            f"Explanation: {entry.explanation}"
-        )
+        context = f"Q: {entry.question}\nA: {entry.answer}\nExplanation: {entry.explanation}"
         self._followup_input.clear()
         self.followup_submitted.emit(text, context)
 
@@ -352,7 +346,9 @@ class MainWindow(QWidget):
 
     def refresh_history(self) -> None:
         search = self._search.text().strip() or None
-        source = (self._source_filter.currentData() or "") if hasattr(self, "_source_filter") else ""
+        source = (
+            (self._source_filter.currentData() or "") if hasattr(self, "_source_filter") else ""
+        )
         entries = list_entries(limit=500, search=search, source=source or None)
         self._history_list.clear()
         for e in entries:
@@ -396,7 +392,9 @@ class MainWindow(QWidget):
         except OSError as exc:
             QMessageBox.warning(self, "Export failed", f"Could not write {path}: {exc}")
             return
-        QMessageBox.information(self, "Export complete", f"Exported {len(rows)} entries to:\n{path}")
+        QMessageBox.information(
+            self, "Export complete", f"Exported {len(rows)} entries to:\n{path}"
+        )
 
     def open_settings(self) -> None:
         dlg = SettingsDialog(self._config, self)
@@ -498,10 +496,10 @@ class SettingsDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; }")
-        
+
         scroll_widget = QWidget()
         scroll_widget.setStyleSheet("QWidget { background: transparent; }")
-        
+
         form = QFormLayout(scroll_widget)
         form.setSpacing(8)
 
@@ -567,7 +565,7 @@ class SettingsDialog(QDialog):
                 self._capture_monitor.addItem(m.label, m.index)
         self._select_monitor_in_combo(self._draft.capture_monitor)
         self._capture_monitor.setToolTip(
-            "Choose which monitor to capture. \"All monitors\" stitches them together."
+            'Choose which monitor to capture. "All monitors" stitches them together.'
         )
         form.addRow("Capture monitor:", self._capture_monitor)
 
@@ -746,6 +744,7 @@ class SettingsDialog(QDialog):
         # Show a sensible default for Ollama if nothing's saved yet.
         if provider == "ollama" and not current.strip():
             from quizai.config import DEFAULT_OLLAMA_HOST
+
             current = DEFAULT_OLLAMA_HOST
         self._api_key.setText(current)
         self._api_key.blockSignals(False)
@@ -768,6 +767,7 @@ class SettingsDialog(QDialog):
         self._base_url.setVisible(needs_base_url)
         if needs_base_url:
             from quizai.config import DEFAULT_OPENAI_BASE_URL
+
             self._base_url.blockSignals(True)
             self._base_url.setText(self._draft.openai_base_url or DEFAULT_OPENAI_BASE_URL)
             self._base_url.blockSignals(False)
@@ -804,6 +804,7 @@ class SettingsDialog(QDialog):
         # hidden otherwise and would clobber the saved value with a blank).
         if self._current_provider() == "openai":
             from quizai.config import DEFAULT_OPENAI_BASE_URL
+
             c.openai_base_url = self._base_url.text().strip() or DEFAULT_OPENAI_BASE_URL
 
         c.auto_capture_interval = int(self._interval.value())
