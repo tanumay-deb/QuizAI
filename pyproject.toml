@@ -89,6 +89,7 @@ ignore = [
 "tests/*" = ["E402", "RUF012"]  # tests may set env vars before imports; mock-class attributes are fine
 "quizai/overlay.py" = ["RUF001"]  # ‹ › are intentional UI arrows
 "quizai/app.py" = ["RUF001"]       # same in notification text
+"quizai/routing.py" = ["RUF001"]   # intentional math glyphs (× ÷ … ) in the router
 "quizai/backends/base.py" = ["RUF003"]  # en-dash in docstring comment
 
 # ----------------------------------------------------------------- pytest
