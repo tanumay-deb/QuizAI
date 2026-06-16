@@ -40,6 +40,15 @@ log = get_logger(__name__)
 DEFAULT_HOST = "http://localhost:11434"
 _TIMEOUT_S = 180.0  # vision calls on CPU can take a while; be generous
 
+# Pin the context window ourselves instead of inheriting the Ollama app's
+# default (the desktop app's "Context length" slider can be set to 256k, which
+# allocates a huge KV cache that overflows VRAM and tanks performance). A single
+# screenshot + answer fits comfortably in 8k.
+_NUM_CTX = 8192
+# Keep the model resident between captures so we don't pay a cold reload each
+# time (default unloads after 5 min idle).
+_KEEP_ALIVE = "30m"
+
 
 class OllamaBackend(Backend):
     """Local LLM through an Ollama HTTP server.
@@ -66,7 +75,8 @@ class OllamaBackend(Backend):
             "model": self._model,
             "stream": False,
             "format": "json",  # forces valid JSON output — perfect for DETECT
-            "options": {"temperature": 0.0, "num_predict": 1024},
+            "keep_alive": _KEEP_ALIVE,
+            "options": {"temperature": 0.0, "num_predict": 1024, "num_ctx": _NUM_CTX},
             "messages": [
                 {"role": "system", "content": DETECT_SYSTEM},
                 {
@@ -85,7 +95,8 @@ class OllamaBackend(Backend):
         body = {
             "model": self._model,
             "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 2048},
+            "keep_alive": _KEEP_ALIVE,
+            "options": {"temperature": 0.2, "num_predict": 2048, "num_ctx": _NUM_CTX},
             "messages": [
                 {"role": "system", "content": ANSWER_SYSTEM},
                 {"role": "user", "content": user_text},
@@ -93,6 +104,36 @@ class OllamaBackend(Backend):
         }
         text = self._chat(body)
         return parse_answer_text(text)
+
+    # ----------------------------------------------------------------- warmup
+    def warmup(self) -> None:
+        """Preload the model + vision encoder so the first real capture is fast.
+
+        Sends one throwaway image request: this pays the cold-start cost (weight
+        load + vision projector + CUDA graph) up front. Best-effort — any failure
+        (server down, model not pulled) is logged and swallowed.
+        """
+        try:
+            from io import BytesIO
+
+            from PIL import Image
+
+            buf = BytesIO()
+            Image.new("RGB", (64, 64), (128, 128, 128)).save(buf, format="PNG")
+            b64 = base64.standard_b64encode(buf.getvalue()).decode("ascii")
+            body = {
+                "model": self._model,
+                "stream": False,
+                "keep_alive": _KEEP_ALIVE,
+                "options": {"num_predict": 1, "num_ctx": _NUM_CTX},
+                "messages": [
+                    {"role": "user", "content": "warmup", "images": [b64]},
+                ],
+            }
+            self._chat(body)
+            log.info("Ollama model '%s' warmed up", self._model)
+        except Exception as exc:  # never let warmup break startup
+            log.debug("Ollama warmup skipped/failed: %s", exc)
 
     # ----------------------------------------------------------------- HTTP
     def _chat(self, body: dict) -> str:

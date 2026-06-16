@@ -38,8 +38,10 @@ DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
     "anthropic": "claude-sonnet-4-6",
     "ollama": "qwen2.5vl:7b",
+    "openai": "gpt-4o-mini",
 }
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 
 @dataclass
@@ -51,6 +53,9 @@ class Config:
     gemini_api_key: str = HARDCODED_GEMINI_API_KEY
     anthropic_api_key: str = ""
     ollama_host: str = DEFAULT_OLLAMA_HOST
+    # OpenAI-compatible provider (OpenAI, Groq, OpenRouter, LM Studio, …).
+    openai_api_key: str = ""
+    openai_base_url: str = DEFAULT_OPENAI_BASE_URL
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODELS))
 
     # ---- Capture & scheduling.
@@ -68,6 +73,9 @@ class Config:
     overlay_opacity: float = 0.92
     overlay_width: int = 480
     overlay_max_height: int = 600
+    # Remembered exact height after the user drag-resizes the overlay.
+    # 0 = auto-fit to content (capped by overlay_max_height); >0 = fixed height.
+    overlay_height: int = 0
 
     # ---- Notifications.
     play_sound: bool = True
@@ -110,6 +118,15 @@ class Config:
             ).strip()
             return host or DEFAULT_OLLAMA_HOST
 
+        if provider == "openai":
+            # Self-hosted servers (e.g. LM Studio) accept any key — fall back to a
+            # placeholder so the "no key" guard doesn't block backend creation.
+            return (
+                (self.openai_api_key or "").strip()
+                or os.environ.get("OPENAI_API_KEY", "").strip()
+                or "-"
+            )
+
         ui_key = (self.gemini_api_key or "").strip()
         if ui_key:
             return ui_key
@@ -117,6 +134,14 @@ class Config:
         return (
             os.environ.get("GEMINI_API_KEY", "").strip()
             or os.environ.get("GOOGLE_API_KEY", "").strip()
+        )
+
+    def effective_base_url(self) -> str:
+        """Base URL for the OpenAI-compatible provider (env var overrides UI)."""
+        return (
+            (self.openai_base_url or "").strip()
+            or os.environ.get("OPENAI_BASE_URL", "").strip()
+            or DEFAULT_OPENAI_BASE_URL
         )
 
     def effective_model(self) -> str:
@@ -137,6 +162,8 @@ class Config:
             self.anthropic_api_key = key.strip()
         elif provider == "ollama":
             self.ollama_host = key.strip()
+        elif provider == "openai":
+            self.openai_api_key = key.strip()
         else:
             self.gemini_api_key = key.strip()
 
@@ -146,6 +173,8 @@ class Config:
             return self.anthropic_api_key or ""
         if provider == "ollama":
             return self.ollama_host or ""
+        if provider == "openai":
+            return self.openai_api_key or ""
         return self.gemini_api_key or ""
 
     # -------------------------------------------------------- (de)serialisation

@@ -533,6 +533,13 @@ class SettingsDialog(QDialog):
         self._key_help.setOpenExternalLinks(True)
         form.addRow("", self._key_help)
 
+        # Base URL — only shown for the OpenAI-compatible provider.
+        self._base_url_label = QLabel("Base URL:")
+        self._base_url = QLineEdit()
+        self._base_url.setPlaceholderText("https://api.openai.com/v1")
+        self._base_url.editingFinished.connect(self._on_base_url_edited)
+        form.addRow(self._base_url_label, self._base_url)
+
         self._model = QComboBox()
         self._model.setEditable(True)
         self._model.currentTextChanged.connect(self._on_model_changed)
@@ -755,6 +762,16 @@ class SettingsDialog(QDialog):
             )
         self._key_help.setText(help_text)
 
+        # Base URL field is only relevant for the OpenAI-compatible provider.
+        needs_base_url = bool(info.get("needs_base_url", False))
+        self._base_url_label.setVisible(needs_base_url)
+        self._base_url.setVisible(needs_base_url)
+        if needs_base_url:
+            from quizai.config import DEFAULT_OPENAI_BASE_URL
+            self._base_url.blockSignals(True)
+            self._base_url.setText(self._draft.openai_base_url or DEFAULT_OPENAI_BASE_URL)
+            self._base_url.blockSignals(False)
+
         self._model.blockSignals(True)
         self._model.clear()
         models = list(info.get("models", []))
@@ -774,12 +791,21 @@ class SettingsDialog(QDialog):
         provider = self._current_provider()
         self._draft.set_model_for_provider(provider, text)
 
+    def _on_base_url_edited(self) -> None:
+        self._draft.openai_base_url = self._base_url.text().strip()
+
     # --------------------------------------------------------------- accept
     def result_config(self) -> Config:
         self._on_key_edited()
         self._on_model_changed(self._model.currentText())
 
         c = self._draft
+        # Persist Base URL only for the OpenAI-compatible provider (the field is
+        # hidden otherwise and would clobber the saved value with a blank).
+        if self._current_provider() == "openai":
+            from quizai.config import DEFAULT_OPENAI_BASE_URL
+            c.openai_base_url = self._base_url.text().strip() or DEFAULT_OPENAI_BASE_URL
+
         c.auto_capture_interval = int(self._interval.value())
         mon_data = self._capture_monitor.currentData()
         c.capture_monitor = int(mon_data) if mon_data is not None else 0

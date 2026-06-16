@@ -102,15 +102,23 @@ class ApiWorker(QObject):
         self._backend: Backend | None = None
         self._detect_cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
 
-    @Slot(str, str, str)
-    def set_backend(self, provider: str, api_key: str, model: str) -> None:
+    @Slot(str, str, str, str)
+    def set_backend(self, provider: str, api_key: str, model: str, base_url: str = "") -> None:
         """(Re)build the backend. Called via queued connection from GUI thread."""
         if not api_key:
             self._backend = None
             return
         try:
-            self._backend = create_backend(provider=provider, api_key=api_key, model=model)
+            self._backend = create_backend(
+                provider=provider, api_key=api_key, model=model, base_url=base_url or None
+            )
             log.info("Backend ready: provider=%s model=%s", provider, model)
+            # Preload the model now (we're on the worker thread, UI stays
+            # responsive) so the user's first capture isn't a cold ~20s hit.
+            try:
+                self._backend.warmup()
+            except Exception:
+                log.debug("Backend warmup skipped/failed", exc_info=True)
         except BackendError as e:
             log.error("Backend init failed: %s", e)
             self._backend = None
@@ -223,7 +231,7 @@ def _job_index(job: object) -> int:
     return -1
 
 
-_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "telegram_token"}
+_SECRET_FIELDS = {"gemini_api_key", "anthropic_api_key", "openai_api_key", "telegram_token"}
 
 
 def _diff_config(old: Config, new: Config) -> str:
@@ -247,7 +255,7 @@ class QuizAIApp(QObject):
     """Single instance that owns the lifecycle of all windows/threads."""
 
     _job_requested = Signal(object)
-    _backend_changed = Signal(str, str, str)
+    _backend_changed = Signal(str, str, str, str)  # provider, api_key, model, base_url
     _telegram_message_received = Signal(str)
 
     def __init__(self, qapp: QApplication) -> None:
@@ -271,7 +279,9 @@ class QuizAIApp(QObject):
             opacity=self._config.overlay_opacity,
             width=self._config.overlay_width,
             max_height=self._config.overlay_max_height,
+            height=self._config.overlay_height,
         )
+        self._overlay.geometry_changed.connect(self._on_overlay_resized)
 
         # ---- Tray.
         self._tray = TrayIcon(self)
@@ -591,6 +601,15 @@ class QuizAIApp(QObject):
         log.warning("API error: %s (index=%d)", message, index)
         self._notifier.error_sound()
 
+    def _on_overlay_resized(self, width: int, height: int) -> None:
+        """Persist the overlay size after the user drag-resizes it."""
+        if width == self._config.overlay_width and height == self._config.overlay_height:
+            return
+        self._config.overlay_width = int(width)
+        self._config.overlay_height = int(height)
+        save_config(self._config)
+        log.info("Overlay resized: %dx%d (saved)", width, height)
+
     # ----------------------------------------------------------- preferences
     def _on_settings_changed(self, new_cfg: Config) -> None:
         old_cfg = self._config
@@ -602,6 +621,7 @@ class QuizAIApp(QObject):
         self._overlay.set_opacity(new_cfg.overlay_opacity)
         self._overlay.set_width(new_cfg.overlay_width)
         self._overlay.set_max_height(new_cfg.overlay_max_height)
+        self._overlay.set_fixed_height(new_cfg.overlay_height)
 
         # Notifier toggles.
         self._notifier.set_sound_enabled(new_cfg.play_sound)
@@ -661,10 +681,16 @@ class QuizAIApp(QObject):
         key = self._config.effective_api_key()
         if not key:
             return
+        base_url = (
+            self._config.effective_base_url()
+            if self._config.provider == "openai"
+            else ""
+        )
         self._backend_changed.emit(
             self._config.provider,
             key,
             self._config.effective_model(),
+            base_url,
         )
 
     def _apply_hotkeys(self) -> None:

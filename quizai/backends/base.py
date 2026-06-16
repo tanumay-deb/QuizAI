@@ -123,6 +123,15 @@ class Backend(ABC):
         prompt — keeps the ANSWER format contract intact.
         """
 
+    def warmup(self) -> None:
+        """Optional: preload the model so the first real call isn't cold.
+
+        Default is a no-op (cloud backends need no warmup). Local backends
+        override this to load weights + vision encoder into memory ahead of
+        the user's first capture. Must never raise.
+        """
+        return
+
 
 def build_followup_prompt(context: str, question: str) -> str:
     """Compose the user message for a follow-up question."""

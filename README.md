@@ -48,14 +48,14 @@ Built for **personal study**. Not for use during proctored exams, certifications
 - ✍️ **Manual input** — type any question into the main window for an instant answer
 - 💾 **Searchable history** — every Q&A saved locally in SQLite, never sent anywhere except the AI provider
 - 🔔 **Sound + desktop notifications** — chime on success, error tone on failure (toggleable)
-- 🧩 **Pluggable AI providers** — Google Gemini (free tier), Anthropic Claude, and **Ollama** for fully-local, private models (Qwen2.5-VL, MiniCPM-V, Llama 3.2 Vision, Gemma 3, …)
+- 🧩 **Pluggable AI providers** — Google Gemini (free tier), Anthropic Claude, **Ollama** for fully-local private models (Qwen2.5-VL, MiniCPM-V, Llama 3.2 Vision, Gemma 3, …), and any **OpenAI-compatible** endpoint (OpenAI, Groq, OpenRouter, LM Studio)
 - 📱 **Mobile companion** — built-in local web server pushes answers to your phone in real time over Wi-Fi; no extra apps or accounts needed
 - 🤖 **Telegram companion** — two-way chat bot: receive answers instantly on Telegram and ask follow-up questions directly from your phone
 
 ## Requirements
 
 - **Python 3.10 or newer**
-- An **AI key** — a **free Gemini key** works great ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), no credit card). Claude (paid) and Ollama (free, runs on your own PC) are also supported.
+- An **AI key** — a **free Gemini key** works great ([aistudio.google.com/apikey](https://aistudio.google.com/apikey), no credit card). Claude (paid), Ollama (free, runs on your own PC), and any OpenAI-compatible endpoint (OpenAI/Groq/OpenRouter) are also supported.
 - **Windows, macOS, or Linux**
 
 ## Getting started (step by step)
@@ -202,6 +202,23 @@ No API key, no cloud — run a vision model entirely on your own machine.
 
 Everything stays on your PC — nothing is sent to any cloud provider.
 
+> **Speed note:** Ollama runs the model's *vision encoder* on the **CPU**, so reading a screenshot takes ~15–20 s even with the LLM on your GPU. That's a llama.cpp limitation, not your hardware. For faster vision, use a cloud provider (Gemini/Claude/OpenAI-compatible) below.
+
+## OpenAI-compatible providers (OpenAI · Groq · OpenRouter · LM Studio)
+
+QuizAI can talk to **any** server that speaks the OpenAI Chat Completions API. This unlocks both fast local inference and cloud providers beyond Gemini/Claude.
+
+Open **Settings**, set the provider to **OpenAI-compatible**, fill in the **Base URL** + **API key**, and pick a **vision-capable** model:
+
+| Service | Base URL | API key | Example model |
+|---|---|---|---|
+| **OpenAI** | `https://api.openai.com/v1` | your key | `gpt-4o-mini` |
+| **Groq** | `https://api.groq.com/openai/v1` | your key | a Llama-vision model |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | your key | any vision model |
+| **LM Studio** | `http://localhost:1234/v1` | *(leave blank)* | a loaded vision model |
+
+Self-hosted servers (e.g. LM Studio) may ignore the key, so leave it blank. You can also set `OPENAI_API_KEY` / `OPENAI_BASE_URL` as environment variables instead of using the UI.
+
 ## Hotkeys
 
 | Hotkey | Action |
@@ -303,6 +320,8 @@ quizai-assistant/
 │       ├── base.py          # Backend interface + parsers
 │       ├── gemini_backend.py
 │       ├── anthropic_backend.py
+│       ├── ollama_backend.py    # local models (vision encoder on CPU)
+│       ├── openai_backend.py    # OpenAI-compatible (OpenAI/Groq/OpenRouter)
 │       └── __init__.py      # factory + provider registry
 ├── tests/                   # pytest suite (67 tests)
 ├── docs/

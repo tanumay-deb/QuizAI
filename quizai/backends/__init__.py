@@ -22,8 +22,13 @@ from quizai.backends.base import (
 )
 
 
-def create_backend(provider: str, api_key: str, model: str) -> Backend:
-    """Build a backend by name. Raises ValueError if the name is unknown."""
+def create_backend(
+    provider: str, api_key: str, model: str, base_url: str | None = None
+) -> Backend:
+    """Build a backend by name. Raises ValueError if the name is unknown.
+
+    `base_url` is only used by the OpenAI-compatible provider (ignored otherwise).
+    """
     p = (provider or "").strip().lower()
     if p in ("anthropic", "claude"):
         from quizai.backends.anthropic_backend import AnthropicBackend
@@ -37,6 +42,10 @@ def create_backend(provider: str, api_key: str, model: str) -> Backend:
         from quizai.backends.ollama_backend import OllamaBackend
 
         return OllamaBackend(api_key=api_key, model=model)
+    if p in ("openai", "openai-compatible", "groq", "openrouter"):
+        from quizai.backends.openai_backend import OpenAIBackend
+
+        return OpenAIBackend(api_key=api_key, model=model, base_url=base_url)
     raise ValueError(f"Unknown provider: {provider!r}")
 
 
@@ -82,6 +91,22 @@ PROVIDER_INFO: dict[str, dict] = {
         "key_label": "Host URL:",
         "key_is_secret": False,
         "needs_api_key": False,
+    },
+    "openai": {
+        "label": "OpenAI-compatible (OpenAI / Groq / OpenRouter)",
+        "models": [
+            "gpt-4o-mini",
+            "gpt-4o",
+            "meta-llama/llama-4-scout-17b-16e-instruct",  # Groq
+        ],
+        "key_help": (
+            "Set the Base URL for your server, then the API key. "
+            "OpenAI: https://api.openai.com/v1 · "
+            "Groq: https://api.groq.com/openai/v1 · OpenRouter: https://openrouter.ai/api/v1. "
+            "Self-hosted servers may ignore the key — leave it blank then. Pick a vision-capable model."
+        ),
+        # Has an extra Base URL field on top of the API key.
+        "needs_base_url": True,
     },
 }
 
