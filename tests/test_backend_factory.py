@@ -9,7 +9,7 @@ def test_factory_unknown_provider_raises():
     from quizai.backends import create_backend
 
     with pytest.raises(ValueError, match="Unknown provider"):
-        create_backend("openai", "k", "m")
+        create_backend("nonexistent-provider", "k", "m")
 
 
 def test_factory_requires_key():

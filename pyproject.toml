@@ -37,6 +37,7 @@ dependencies = [
     "pystray>=0.19.5",
     "google-genai>=0.3.0",
     "anthropic>=0.40.0",
+    "rapidocr-onnxruntime>=1.4",
 ]
 
 [project.optional-dependencies]
