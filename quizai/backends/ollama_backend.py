@@ -221,7 +221,7 @@ class OllamaBackend(Backend):
 # ---------------------------------------------------------------- helpers
 def _pretty_http_error(code: int, body: str, model: str) -> str:
     low = body.lower()
-    if code == 404 or "model" in low and ("not found" in low or "no such" in low):
+    if code == 404 or ("model" in low and ("not found" in low or "no such" in low)):
         return (
             f"Ollama doesn't have model '{model}' pulled yet. "
             f"Run in a terminal:  ollama pull {model}"

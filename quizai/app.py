@@ -281,7 +281,7 @@ class ApiWorker(QObject):
                 try:
                     vis_qs = [items[n].question for n in vis_idx]
                     vis_ans = self._backend.answer_questions_with_image(vis_qs, job.png)
-                    for n, a in zip(vis_idx, vis_ans):
+                    for n, a in zip(vis_idx, vis_ans, strict=False):
                         items[n].answer = a.answer
                 except NotImplementedError:
                     pass  # backend can't answer-with-image — leave placeholders
