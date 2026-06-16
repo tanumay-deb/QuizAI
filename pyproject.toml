@@ -88,6 +88,7 @@ ignore = [
 "tests/*" = ["E402", "RUF012"]  # tests may set env vars before imports; mock-class attributes are fine
 "quizai/overlay.py" = ["RUF001"]  # ‹ › are intentional UI arrows
 "quizai/app.py" = ["RUF001"]       # same in notification text
+"quizai/screen_capture.py" = ["RUF001"]  # × is the intentional monitor-dimension separator
 "quizai/backends/base.py" = ["RUF003"]  # en-dash in docstring comment
 
 # ----------------------------------------------------------------- pytest

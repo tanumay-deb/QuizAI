@@ -212,14 +212,15 @@ class OverlayWindow(QWidget):
         grip_row.addStretch(1)
         self._size_grip = QSizeGrip(self._root)
         self._size_grip.setToolTip("Drag to resize")
-        grip_row.addWidget(self._size_grip, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        grip_row.addWidget(
+            self._size_grip, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom
+        )
         root_layout.addLayout(grip_row)
 
         # Resizable instead of fixed-width so the grip works in both axes.
         self.setMinimumWidth(280)
         self.setMinimumHeight(140)
         self._apply_size(self._target_width, self._fixed_height or 160)
-
 
     def _apply_window_flags(self) -> None:
         flags = (
@@ -233,7 +234,7 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
     def _clear_body(self):
-        while self._body_layout.count() > 1: # keeping the stretch at the end
+        while self._body_layout.count() > 1:  # keeping the stretch at the end
             item = self._body_layout.takeAt(0)
             w = item.widget()
             if w:
@@ -328,19 +329,19 @@ class OverlayWindow(QWidget):
 
     def _render_all(self) -> None:
         self._clear_body()
-        
+
         for i, entry in enumerate(self._entries):
             container = QWidget()
             layout = QVBoxLayout(container)
             layout.setContentsMargins(0, 0, 0, 12)
             layout.setSpacing(6)
-            
+
             q_preview = _truncate(entry.question, 500)
             q_lbl = QLabel(f"Q: {q_preview}")
             q_lbl.setObjectName("overlayQuestion")
             q_lbl.setWordWrap(True)
             layout.addWidget(q_lbl)
-            
+
             if entry.answer is None:
                 # Pending
                 s_lbl = QLabel("Thinking…")
@@ -351,22 +352,24 @@ class OverlayWindow(QWidget):
                 a_lbl.setObjectName("overlayAnswer")
                 a_lbl.setWordWrap(True)
                 layout.addWidget(a_lbl)
-                
+
                 if entry.explanation:
                     e_lbl = QLabel(entry.explanation)
                     e_lbl.setObjectName("overlayExplanation")
                     e_lbl.setWordWrap(True)
                     layout.addWidget(e_lbl)
-            
+
             # Separator if not the last item
             if i < len(self._entries) - 1:
                 line = QFrame()
                 line.setFrameShape(QFrame.Shape.HLine)
-                line.setStyleSheet("background-color: rgba(255, 255, 255, 20); border: none; height: 1px;")
+                line.setStyleSheet(
+                    "background-color: rgba(255, 255, 255, 20); border: none; height: 1px;"
+                )
                 layout.addWidget(line)
-            
+
             self._body_layout.insertWidget(self._body_layout.count() - 1, container)
-            
+
         self._fit_height()
 
     # ----------------------------------------------------------- positioning
@@ -393,7 +396,7 @@ class OverlayWindow(QWidget):
         self._last_set_size = (int(w), int(h))
         self.resize(int(w), int(h))
 
-    def resizeEvent(self, event) -> None:  # noqa: N802 (Qt override)
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # Ignore resizes we triggered ourselves (auto-fit, width/opacity apply).
         if (self.width(), self.height()) == self._last_set_size:

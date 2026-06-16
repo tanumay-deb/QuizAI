@@ -114,9 +114,7 @@ class Config:
             return os.environ.get("ANTHROPIC_API_KEY", "").strip()
 
         if provider == "ollama":
-            host = (self.ollama_host or "").strip() or os.environ.get(
-                "OLLAMA_HOST", ""
-            ).strip()
+            host = (self.ollama_host or "").strip() or os.environ.get("OLLAMA_HOST", "").strip()
             return host or DEFAULT_OLLAMA_HOST
 
         if provider == "openai":
