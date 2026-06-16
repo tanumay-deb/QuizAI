@@ -290,9 +290,7 @@ class ApiWorker(QObject):
         from quizai.routing import decide_route
         from quizai.text_qa import extract_and_answer
 
-        route = decide_route(
-            ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor
-        )
+        route = decide_route(ocr.text, ocr.mean_confidence, ocr.char_count, self._ocr_conf_floor)
         # OCR is the detection layer — extract questions from its text even when
         # the page is visual (vision detecting in a cluttered capture is unreliable).
         items = extract_and_answer(ocr.text, self._ocr_text_model, self._ollama_host)
