@@ -1,11 +1,12 @@
 """Configuration management.
 
 Stored at ~/.quizai/config.json. Per-provider API keys are kept separately so
-the user can switch providers without losing the other key. Env vars override
-the config file values:
+the user can switch providers without losing the other key. A key set in the
+config/UI takes precedence; environment variables are used as a fallback when
+no config key is set:
 
-  ANTHROPIC_API_KEY  - takes precedence over config.anthropic_api_key
-  GEMINI_API_KEY     - takes precedence over config.gemini_api_key
+  ANTHROPIC_API_KEY  - fallback for Anthropic when config.anthropic_api_key is empty
+  GEMINI_API_KEY     - fallback for Gemini when config.gemini_api_key is empty
   GOOGLE_API_KEY     - also accepted for Gemini (Google's SDK default)
 """
 

@@ -32,18 +32,22 @@ def test_round_trip():
     assert c2.play_sound is False
 
 
-def test_env_var_precedence(monkeypatch):
+def test_env_var_fallback(monkeypatch):
     from quizai.config import Config
 
+    # A key set in config/UI takes precedence over the environment.
     c = Config(gemini_api_key="from-config", provider="gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "from-env")
     assert c.effective_api_key() == "from-config"
 
-    monkeypatch.setenv("GEMINI_API_KEY", "from-env")
-    assert c.effective_api_key() == "from-env"
+    # Env var is used as a fallback when no config/UI key is set.
+    c2 = Config(gemini_api_key="", provider="gemini")
+    assert c2.effective_api_key() == "from-env"
 
+    # GOOGLE_API_KEY is accepted as a Gemini fallback too.
     monkeypatch.delenv("GEMINI_API_KEY")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-fallback")
-    assert c.effective_api_key() == "google-fallback"
+    assert c2.effective_api_key() == "google-fallback"
 
 
 def test_per_provider_key_storage():
